@@ -230,6 +230,30 @@ final transactionsStreamProvider = StreamProvider<List<LocalTransaction>>((ref) 
   return ref.watch(transactionRepositoryProvider).watchTransactions(session.userId, limit: 200);
 });
 
+final transactionMovementsStreamProvider =
+    StreamProvider<List<LocalAccountMovement>>((ref) {
+  final session = ref.watch(activeSessionProvider).valueOrNull;
+  if (session == null) return Stream.value(const []);
+  final db = ref.watch(appDatabaseProvider);
+  return (db.select(db.localAccountMovements)
+        ..where(
+          (m) =>
+              m.userId.equals(session.userId) & m.transactionId.isNotNull(),
+        ))
+      .watch();
+});
+
+final receiptsStreamProvider = StreamProvider<List<LocalReceipt>>((ref) {
+  final session = ref.watch(activeSessionProvider).valueOrNull;
+  if (session == null) return Stream.value(const []);
+  final db = ref.watch(appDatabaseProvider);
+  return (db.select(db.localReceipts)
+        ..where(
+          (r) => r.userId.equals(session.userId) & r.deletedAtMs.isNull(),
+        ))
+      .watch();
+});
+
 final budgetsStreamProvider = StreamProvider<List<LocalBudget>>((ref) {
   final session = ref.watch(activeSessionProvider).valueOrNull;
   if (session == null) return const Stream.empty();

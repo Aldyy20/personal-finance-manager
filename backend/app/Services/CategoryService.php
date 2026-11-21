@@ -52,15 +52,24 @@ class CategoryService
                 throw new EntityConflictException('Category ID already exists.');
             }
 
+            $icon = isset($data['icon'])
+                ? trim(explode('|', (string) $data['icon'])[0])
+                : null;
+            if ($icon === '') {
+                $icon = null;
+            } elseif ($icon !== null) {
+                $icon = substr($icon, 0, 50);
+            }
+
             $category = Category::query()->create([
                 'id' => $categoryId,
                 'user_id' => $user->id,
                 'name' => $name,
                 'type' => $type,
-                'icon' => $data['icon'] ?? null,
+                'icon' => $icon,
                 'color' => $data['color'] ?? null,
                 'is_default' => false,
-                'is_active' => true,
+                'is_active' => array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true,
                 'sort_order' => (int) ($data['sort_order'] ?? 0),
                 'version' => 1,
             ]);
@@ -113,7 +122,21 @@ class CategoryService
                 'icon',
                 'color',
                 'sort_order',
+                'is_active',
             ]));
+
+            if (array_key_exists('icon', $updatable)) {
+                $cleanIcon = $updatable['icon'] !== null
+                    ? trim(explode('|', (string) $updatable['icon'])[0])
+                    : null;
+                $updatable['icon'] = ($cleanIcon === null || $cleanIcon === '')
+                    ? null
+                    : substr($cleanIcon, 0, 50);
+            }
+
+            if (array_key_exists('is_active', $updatable)) {
+                $updatable['is_active'] = (bool) $updatable['is_active'];
+            }
 
             if (isset($updatable['name'])) {
                 $updatable['name'] = trim((string) $updatable['name']);

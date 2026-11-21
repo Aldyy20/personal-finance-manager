@@ -193,37 +193,9 @@ class _AccountDetailSheetState extends ConsumerState<AccountDetailSheet> {
                 ],
               ),
               const SizedBox(height: AppSpacing.md),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${accountTypeLabel(current.accountType)}'
-                        '${current.institutionName != null ? ' • ${current.institutionName}' : ''}'
-                        '${current.isActive ? '' : ' • DIARSIPKAN'}',
-                        style: textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        CurrencyFormatter.formatIdr(current.balanceCache),
-                        style: FinancialTypography.heroBalance(context).copyWith(
-                          color: current.balanceCache < 0
-                              ? financialColors.expense
-                              : financialColors.balance,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        'Saldo Awal: ${CurrencyFormatter.formatIdr(current.openingBalance)} (${current.openingBalanceDate})',
-                        style: FinancialTypography.tabular(textTheme.bodySmall!).copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              LivinAccountCard(
+                account: current,
+                compact: false,
               ),
               const SizedBox(height: AppSpacing.md),
               Wrap(

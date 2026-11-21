@@ -14,6 +14,8 @@ class UpdateCategoryRequest extends BaseApiRequest
             'icon' => ['nullable', 'string', 'max:50'],
             'color' => ['nullable', 'string', 'max:20'],
             'sort_order' => ['sometimes', 'integer'],
+            'is_active' => ['sometimes', 'boolean'],
+            'description' => ['nullable', 'string', 'max:255'],
             'base_version' => ['nullable', 'integer', 'min:1'],
         ];
     }

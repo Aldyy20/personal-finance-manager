@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -33,6 +34,15 @@ class ReportsScreen extends ConsumerStatefulWidget {
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   ReportPeriod _period = ReportPeriod.thisMonth;
   String _breakdownType = 'expense';
+
+  static const _donutPalette = [
+    Color(0xFF0054CC),
+    Color(0xFF00C087),
+    Color(0xFFF59E0B),
+    Color(0xFF8B5CF6),
+    Color(0xFFF43F5E),
+    Color(0xFF06B6D4),
+  ];
 
   ({DateTime start, DateTime end}) _resolveRange() {
     final now = DateTime.now().toUtc();
@@ -153,7 +163,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                     const SnackBar(
-                      content: Text('Gunakan tombol Salin pada perangkat/lingkungan pengujian.'),
+                      content: Text(
+                        'Gunakan tombol Salin pada perangkat/lingkungan pengujian.',
+                      ),
                     ),
                   );
                 }
@@ -173,18 +185,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final financialColors = Theme.of(context).extension<FinancialColors>()!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final financialColors = theme.extension<FinancialColors>()!;
 
     final session = ref.watch(activeSessionProvider).valueOrNull;
-    // Rebuild reports automatically when transactions or accounts change locally or synced
     ref.watch(transactionsStreamProvider);
     ref.watch(accountsStreamProvider);
 
+    final now = DateTime.now();
+    final selectedPeriodLabel = _period == ReportPeriod.allTime
+        ? 'Semua Periode'
+        : (_period == ReportPeriod.thisYear
+            ? 'Tahun ${now.year}'
+            : DateFormat('MMMM yyyy').format(now));
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Laporan Keuangan'),
+        title: const StitchAppBarTitle(title: 'Laporan Keuangan'),
         actions: [
           IconButton(
             tooltip: 'Ekspor CSV (Excel)',
@@ -203,8 +223,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           : FutureBuilder(
               future: _loadReportData(session.userId),
               builder: (context, snapshot) {
-                if (!snapshot.hasData && snapshot.connectionState == ConnectionState.waiting) {
-                  return const LoadingStateView(message: 'Menyusun laporan analitik lokal...');
+                if (!snapshot.hasData &&
+                    snapshot.connectionState == ConnectionState.waiting) {
+                  return const LoadingStateView(
+                    message: 'Menyusun laporan analitik lokal...',
+                  );
                 }
                 if (snapshot.hasError) {
                   return ErrorStateView(message: snapshot.error.toString());
@@ -215,7 +238,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 final totalIncome = (overview['total_income'] as num?)?.toInt() ?? 0;
                 final totalExpense = (overview['total_expense'] as num?)?.toInt() ?? 0;
                 final netFlow = (overview['net_cash_flow'] as num?)?.toInt() ?? 0;
-                final totalBalance = (overview['total_balance'] as num?)?.toInt() ?? 0;
+
+                Map<String, dynamic>? peakMonth;
+                for (final m in data.monthly) {
+                  final mIncome = (m['income'] as num).toInt();
+                  if (peakMonth == null || mIncome > (peakMonth['income'] as num).toInt()) {
+                    peakMonth = m;
+                  }
+                }
 
                 return ListView(
                   padding: const EdgeInsets.fromLTRB(
@@ -225,6 +255,55 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     96,
                   ),
                   children: [
+                    // 1. Periode Terpilih Pill Card
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: colorScheme.surfaceContainer,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                Icons.event_rounded,
+                                size: 20,
+                                color: isDark
+                                    ? const Color(0xFF38BDF8)
+                                    : financialColors.transfer,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Periode Terpilih',
+                                    style: textTheme.labelSmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  Text(
+                                    '$selectedPeriodLabel • ${_period.label}',
+                                    style: textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
@@ -241,110 +320,253 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Ringkasan Arus Kas • ${_period.label}',
-                              style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: AppSpacing.xxs),
-                            Text(
-                              'Transfer antar rekening & transaksi voided dikecualikan dari total.',
-                              style: textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
+
+                    // 2. Hero Card: Arus Kas Bersih (Net)
+                    LivinHeroBanner(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.account_balance_wallet_rounded,
+                                    size: 18,
+                                    color: Color(0xFF93C5FD),
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Arus Kas Bersih (Net)',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF93C5FD),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: AppSpacing.lg),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _MetricTile(
-                                    label: 'Pemasukan',
-                                    amount: totalIncome,
-                                    prefix: '+',
-                                    color: financialColors.income,
-                                  ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
                                 ),
-                                const SizedBox(width: AppSpacing.md),
-                                Expanded(
-                                  child: _MetricTile(
-                                    label: 'Pengeluaran',
-                                    amount: totalExpense,
-                                    prefix: '-',
-                                    color: financialColors.expense,
-                                  ),
+                                decoration: BoxDecoration(
+                                  color: netFlow >= 0
+                                      ? const Color(0xFF10B981).withValues(alpha: 0.22)
+                                      : const Color(0xFFEF4444).withValues(alpha: 0.24),
+                                  borderRadius: BorderRadius.circular(999),
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: AppSpacing.md),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _MetricTile(
-                                    label: 'Arus Kas Bersih',
-                                    amount: netFlow,
-                                    prefix: netFlow > 0 ? '+' : '',
+                                child: Text(
+                                  netFlow >= 0 ? 'Surplus Sehat' : 'Defisit Kas',
+                                  style: textTheme.labelSmall?.copyWith(
                                     color: netFlow >= 0
-                                        ? financialColors.income
-                                        : financialColors.expense,
+                                        ? const Color(0xFF6EE7B7)
+                                        : const Color(0xFFFCA5A5),
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                                const SizedBox(width: AppSpacing.md),
-                                Expanded(
-                                  child: _MetricTile(
-                                    label: 'Saldo Aktif Saat Ini',
-                                    amount: totalBalance,
-                                    prefix: '',
-                                    color: financialColors.balance,
-                                  ),
-                                ),
-                              ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            '${netFlow > 0 ? '+' : ''}${CurrencyFormatter.formatIdr(netFlow)}',
+                            style: FinancialTypography.heroBalance(context).copyWith(
+                              color: const Color(0xFFFFFFFF),
+                              fontSize: 27,
                             ),
-                            const SizedBox(height: AppSpacing.md),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _exportReport(isCsv: true),
-                                    icon: const Icon(Icons.table_view_outlined),
-                                    label: const Text('Ekspor CSV'),
-                                  ),
-                                ),
-                                const SizedBox(width: AppSpacing.sm),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _exportReport(isCsv: false),
-                                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                                    label: const Text('Cetak / PDF'),
-                                  ),
-                                ),
-                              ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            netFlow >= 0
+                                ? 'Saldo akumulatif lebih tinggi dari pengeluaran periode ini'
+                                : 'Pengeluaran lebih besar dari pemasukan periode ini',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFFAAC7FD),
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _HeroMetricTile(
+                                  label: 'Pemasukan',
+                                  amount: totalIncome,
+                                  prefix: '+',
+                                  accentColor: const Color(0xFF6EE7B7),
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(
+                                child: _HeroMetricTile(
+                                  label: 'Pengeluaran',
+                                  amount: totalExpense,
+                                  prefix: '-',
+                                  accentColor: financialColors.brandGold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.info_outline,
+                                size: 14,
+                                color: Color(0xFF7490C3),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Transfer antar rekening sendiri tidak dihitung sebagai pemasukan atau pengeluaran.',
+                                  style: textTheme.labelSmall?.copyWith(
+                                    color: const Color(0xFF93C5FD),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: AppSpacing.xl),
+
+                    // 3. Perbandingan Bulanan (6 Bulan) Chart + Summary Box
                     const SectionHeader(
                       title: 'Perbandingan Bulanan (6 Bulan)',
-                      subtitle: 'Grafik Pemasukan vs Pengeluaran',
+                      subtitle: 'Komparasi Pemasukan vs Pengeluaran',
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: _MonthlyComparisonChart(
-                          months: data.monthly,
-                          incomeColor: financialColors.income,
-                          expenseColor: financialColors.expense,
+                        child: Column(
+                          children: [
+                            _MonthlyComparisonChart(
+                              months: data.monthly,
+                              incomeColor: isDark
+                                  ? const Color(0xFF38BDF8)
+                                  : const Color(0xFF0054CC),
+                              expenseColor: const Color(0xFFF97316),
+                            ),
+                            if (peakMonth != null &&
+                                (peakMonth['income'] as num).toInt() > 0) ...[
+                              const SizedBox(height: AppSpacing.md),
+                              Container(
+                                padding: const EdgeInsets.all(AppSpacing.sm),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surfaceContainerLow,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.trending_up_rounded,
+                                      size: 18,
+                                      color: isDark
+                                          ? const Color(0xFF38BDF8)
+                                          : financialColors.transfer,
+                                    ),
+                                    const SizedBox(width: AppSpacing.xs),
+                                    Expanded(
+                                      child: Text(
+                                        'Pemasukan tertinggi pada ${peakMonth['month_label']}',
+                                        style: textTheme.bodySmall,
+                                      ),
+                                    ),
+                                    Text(
+                                      CurrencyFormatter.formatIdr(
+                                        (peakMonth['income'] as num).toInt(),
+                                      ),
+                                      style: FinancialTypography.tabular(
+                                        textTheme.labelMedium!,
+                                      ).copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark
+                                            ? const Color(0xFF38BDF8)
+                                            : financialColors.transfer,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),
+                    const SizedBox(height: AppSpacing.md),
+
+                    // 4. Insight Mandiri Pintar Box
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        gradient: LinearGradient(
+                          colors: isDark
+                              ? [const Color(0xFF102347), const Color(0xFF0E1B33)]
+                              : [
+                                  colorScheme.surfaceContainer,
+                                  colorScheme.surfaceContainerLow,
+                                ],
+                        ),
+                        border: isDark
+                            ? Border.all(color: const Color(0xFF1E3A70))
+                            : null,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isDark
+                                  ? const Color(0xFF38BDF8)
+                                  : financialColors.transfer,
+                            ),
+                            child: const Icon(
+                              Icons.auto_awesome,
+                              size: 17,
+                              color: Color(0xFFFFFFFF),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'INSIGHT MANDIRI PINTAR',
+                                  style: textTheme.labelSmall?.copyWith(
+                                    color: isDark
+                                        ? const Color(0xFF38BDF8)
+                                        : financialColors.transfer,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  totalIncome > 0
+                                      ? 'Rasio tabungan bersih periode ini sebesar ${((netFlow / totalIncome) * 100).toStringAsFixed(1)}% dari total pemasukan Anda.'
+                                      : 'Catat pemasukan dan pengeluaran rutin untuk melihat rasio penghematan otomatis.',
+                                  style: textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: AppSpacing.xl),
+
+                    // 5. Analisis Kategori + Stitch Donut Chart
                     SectionHeader(
                       title: 'Analisis Kategori',
                       subtitle: _breakdownType == 'expense'
@@ -358,7 +580,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                         ButtonSegment(value: 'income', label: Text('Pemasukan')),
                       ],
                       selected: {_breakdownType},
-                      onSelectionChanged: (sel) => setState(() => _breakdownType = sel.first),
+                      onSelectionChanged: (sel) =>
+                          setState(() => _breakdownType = sel.first),
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     if (data.breakdown.isEmpty)
@@ -366,7 +589,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                         child: EmptyStateView(
                           icon: Icons.bar_chart_outlined,
                           title: 'Belum Ada Data Kategori',
-                          message: 'Belum ada transaksi posted pada periode dan jenis ini.',
+                          message:
+                              'Belum ada transaksi posted pada periode dan jenis ini.',
                         ),
                       )
                     else
@@ -375,6 +599,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           padding: const EdgeInsets.all(AppSpacing.lg),
                           child: Column(
                             children: [
+                              // Stitch Interactive Donut Chart + Top Legend
+                              _CategoryDonutSection(
+                                items: data.breakdown,
+                                palette: _donutPalette,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              const Divider(),
+                              const SizedBox(height: AppSpacing.md),
                               for (var i = 0; i < data.breakdown.length; i++) ...[
                                 if (i > 0) const SizedBox(height: AppSpacing.md),
                                 Builder(
@@ -382,10 +614,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                     final item = data.breakdown[i];
                                     final pct = (item['percentage'] as num).toDouble();
                                     final amt = (item['total_amount'] as num).toInt();
-                                    final count = (item['transaction_count'] as num).toInt();
-                                    final color = _breakdownType == 'income'
-                                        ? financialColors.income
-                                        : financialColors.expense;
+                                    final count =
+                                        (item['transaction_count'] as num).toInt();
+                                    final sliceColor =
+                                        _donutPalette[i % _donutPalette.length];
                                     return Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
@@ -395,7 +627,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                               child: Text(
                                                 '${item['category_name']} ($count transaksi)',
                                                 style: textTheme.bodyMedium?.copyWith(
-                                                  fontWeight: FontWeight.w500,
+                                                  fontWeight: FontWeight.w600,
                                                 ),
                                               ),
                                             ),
@@ -404,8 +636,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                               style: FinancialTypography.tabular(
                                                 textTheme.bodySmall!,
                                               ).copyWith(
-                                                color: color,
-                                                fontWeight: FontWeight.w600,
+                                                color: sliceColor,
+                                                fontWeight: FontWeight.w700,
                                               ),
                                             ),
                                           ],
@@ -413,10 +645,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                         const SizedBox(height: AppSpacing.xs),
                                         LinearProgressIndicator(
                                           value: (pct / 100).clamp(0.0, 1.0),
-                                          color: color,
-                                          backgroundColor: colorScheme.surfaceContainerHighest,
-                                          minHeight: 8,
-                                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                                          color: sliceColor,
+                                          backgroundColor:
+                                              colorScheme.surfaceContainerHigh,
+                                          minHeight: 7,
+                                          borderRadius:
+                                              BorderRadius.circular(AppRadius.sm),
                                         ),
                                       ],
                                     );
@@ -428,6 +662,72 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                         ),
                       ),
                     const SizedBox(height: AppSpacing.xl),
+
+                    // 6. Unduh & Ekspor Laporan Card
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Unduh & Ekspor Laporan',
+                              style: textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Dapatkan rekap mutasi resmi format standar perbankan',
+                              style: textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.tonalIcon(
+                                    onPressed: () => _exportReport(isCsv: false),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: isDark
+                                          ? const Color(0xFF93000A)
+                                              .withValues(alpha: 0.45)
+                                          : const Color(0xFFFFDAD6),
+                                      foregroundColor: isDark
+                                          ? const Color(0xFFFCA5A5)
+                                          : financialColors.expense,
+                                    ),
+                                    icon: const Icon(Icons.picture_as_pdf_outlined),
+                                    label: const Text('Unduh PDF'),
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  child: FilledButton.tonalIcon(
+                                    onPressed: () => _exportReport(isCsv: true),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: isDark
+                                          ? const Color(0xFF064E3B)
+                                              .withValues(alpha: 0.55)
+                                          : const Color(0xFFECFDF5),
+                                      foregroundColor: isDark
+                                          ? const Color(0xFF6EE7B7)
+                                          : const Color(0xFF065F46),
+                                    ),
+                                    icon: const Icon(Icons.table_view_outlined),
+                                    label: const Text('Ekspor CSV (.xlsx)'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+
+                    // 7. Laporan Saldo Rekening
                     const SectionHeader(
                       title: 'Laporan Saldo Rekening',
                       subtitle: 'Rekonsiliasi Opening Balance & Saldo Terkini',
@@ -451,7 +751,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                   title: Text(acc['name'] as String),
                                   subtitle: Text(
                                     'Awal ${CurrencyFormatter.formatIdr(opening)} • ${acc['movement_count']} mutasi',
-                                    style: FinancialTypography.tabular(textTheme.bodySmall!),
+                                    style: FinancialTypography.tabular(
+                                      textTheme.bodySmall!,
+                                    ),
                                   ),
                                   trailing: Text(
                                     CurrencyFormatter.formatIdr(balance),
@@ -477,46 +779,210 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 }
 
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
+class _HeroMetricTile extends StatelessWidget {
+  const _HeroMetricTile({
     required this.label,
     required this.amount,
     required this.prefix,
-    required this.color,
+    required this.accentColor,
   });
 
   final String label;
   final int amount;
   final String prefix;
-  final Color color;
+  final Color accentColor;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final colorScheme = Theme.of(context).colorScheme;
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        color: const Color(0xFFFFFFFF).withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFFFFFFF).withValues(alpha: 0.14),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: textTheme.labelMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+            style: textTheme.labelSmall?.copyWith(
+              color: const Color(0xFFDBEAFE),
+            ),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
             '$prefix${CurrencyFormatter.formatIdr(amount)}',
-            style: FinancialTypography.amountList(context, color: color),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: FinancialTypography.amountList(context, color: accentColor)
+                .copyWith(fontWeight: FontWeight.w800),
           ),
         ],
       ),
     );
   }
+}
+
+class _CategoryDonutSection extends StatelessWidget {
+  const _CategoryDonutSection({
+    required this.items,
+    required this.palette,
+  });
+
+  final List<Map<String, dynamic>> items;
+  final List<Color> palette;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    final top = items.first;
+    final topPct = (top['percentage'] as num).toDouble();
+    final topName = top['category_name'] as String;
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 132,
+          height: 132,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CustomPaint(
+                size: const Size(132, 132),
+                painter: _DonutChartPainter(
+                  slices: [
+                    for (var i = 0; i < items.length; i++)
+                      (
+                        pct: (items[i]['percentage'] as num).toDouble(),
+                        color: palette[i % palette.length],
+                      ),
+                  ],
+                  trackColor: colorScheme.surfaceContainer,
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Terbesar',
+                    style: textTheme.labelSmall?.copyWith(
+                      fontSize: 10,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    '${topPct.toStringAsFixed(0)}%',
+                    style: FinancialTypography.tabular(
+                      textTheme.titleMedium!,
+                    ).copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  SizedBox(
+                    width: 66,
+                    child: Text(
+                      topName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: textTheme.labelSmall?.copyWith(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: palette.first,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < math.min(4, items.length); i++) ...[
+                if (i > 0) const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: palette[i % palette.length],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        items[i]['category_name'] as String,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${(items[i]['percentage'] as num).toDouble().toStringAsFixed(0)}%',
+                      style: FinancialTypography.tabular(
+                        textTheme.labelSmall!,
+                      ).copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DonutChartPainter extends CustomPainter {
+  _DonutChartPainter({
+    required this.slices,
+    required this.trackColor,
+  });
+
+  final List<({double pct, Color color})> slices;
+  final Color trackColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2 - 10;
+    const strokeWidth = 15.0;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+    canvas.drawCircle(center, radius, trackPaint);
+
+    var startAngle = -math.pi / 2;
+    for (final slice in slices) {
+      if (slice.pct <= 0) continue;
+      final sweep = (slice.pct / 100.0) * 2 * math.pi;
+      final paint = Paint()
+        ..color = slice.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.butt;
+      canvas.drawArc(rect, startAngle, sweep, false, paint);
+      startAngle += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DonutChartPainter oldDelegate) => true;
 }
 
 class _MonthlyComparisonChart extends StatelessWidget {
@@ -546,11 +1012,19 @@ class _MonthlyComparisonChart extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.square_rounded, size: 12, color: incomeColor),
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: incomeColor),
+            ),
             const SizedBox(width: AppSpacing.xs),
             Text('Pemasukan', style: textTheme.labelMedium),
             const SizedBox(width: AppSpacing.lg),
-            Icon(Icons.square_rounded, size: 12, color: expenseColor),
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: expenseColor),
+            ),
             const SizedBox(width: AppSpacing.xs),
             Text('Pengeluaran', style: textTheme.labelMedium),
           ],
@@ -635,10 +1109,9 @@ class _ChartBar extends StatelessWidget {
         height: barHeight,
         decoration: BoxDecoration(
           color: color,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(5)),
         ),
       ),
     );
   }
 }
-

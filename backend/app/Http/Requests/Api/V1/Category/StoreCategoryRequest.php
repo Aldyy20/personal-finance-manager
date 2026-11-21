@@ -15,6 +15,8 @@ class StoreCategoryRequest extends BaseApiRequest
             'icon' => ['nullable', 'string', 'max:50'],
             'color' => ['nullable', 'string', 'max:20'],
             'sort_order' => ['nullable', 'integer'],
+            'is_active' => ['nullable', 'boolean'],
+            'description' => ['nullable', 'string', 'max:255'],
         ];
     }
 }

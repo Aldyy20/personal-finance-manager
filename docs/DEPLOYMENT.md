@@ -33,7 +33,7 @@ $app = require_once __DIR__.'/../../pfm-backend/bootstrap/app.php';
 ### 1.2 Konfigurasi `.env` & Database MySQL
 1. Salin [backend/.env.production.example](../backend/.env.production.example) ke `pfm-backend/.env`.
 2. Buat database MySQL/MariaDB + user di cPanel dan isi `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`.
-3. Pastikan `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://api.your-domain.com`, dan jalankan:
+3. Pastikan `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://keuangan.underdevelopment.web.id`, dan jalankan:
    ```bash
    php artisan key:generate --force
    ```
@@ -55,7 +55,7 @@ Script tersebut secara otomatis menjalankan:
 - [backend/public/.htaccess](../backend/public/.htaccess) otomatis memblokir akses dotfiles (kecuali `.well-known`), menyetel header keamanan (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`), dan mengarahkan trafik non-localhost ke `HTTPS`.
 - Verifikasi akhir:
   ```bash
-  curl -i https://api.your-domain.com/api/v1/health
+  curl -i https://keuangan.underdevelopment.web.id/api/v1/health
   ```
 
 ### 1.5 Jadwal Backup Otomatis (Cron Job)
@@ -90,8 +90,8 @@ $env:JAVA_TOOL_OPTIONS = '-Djava.io.tmpdir=d:/kerja/Sistem/personal-finance-mana
 $env:PATH = 'D:\flutter\bin;' + $env:PATH
 
 Set-Location 'd:\kerja\Sistem\personal-finance-manager\mobile'
-flutter build apk --release --dart-define=APP_ENV=prod --dart-define=API_BASE_URL=https://api.your-domain.com/api/v1
-flutter build appbundle --release --dart-define=APP_ENV=prod --dart-define=API_BASE_URL=https://api.your-domain.com/api/v1
+flutter build apk --release --dart-define=APP_ENV=prod --dart-define=API_BASE_URL=https://keuangan.underdevelopment.web.id/api/v1
+flutter build appbundle --release --dart-define=APP_ENV=prod --dart-define=API_BASE_URL=https://keuangan.underdevelopment.web.id/api/v1
 ```
 
 Output artefak rilis tersimpan di:

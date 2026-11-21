@@ -304,6 +304,7 @@ class LocalLedgerService {
     String? icon,
     String? color,
     int sortOrder = 0,
+    bool isActive = true,
   }) async {
     if (type != 'income' && type != 'expense') {
       throw const ValidationException(message: 'Tipe kategori harus income atau expense.');
@@ -315,6 +316,9 @@ class LocalLedgerService {
 
     final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
     final categoryId = _uuid.v4();
+    final cleanIconKey = (icon != null && icon.trim().isNotEmpty)
+        ? icon.split('|').first.trim()
+        : null;
 
     return db.transaction(() async {
       await db.into(db.localCategories).insert(
@@ -326,7 +330,7 @@ class LocalLedgerService {
               icon: Value(icon),
               color: Value(color),
               isDefault: const Value(false),
-              isActive: const Value(true),
+              isActive: Value(isActive),
               sortOrder: Value(sortOrder),
               version: const Value(1),
               createdAtMs: nowMs,
@@ -344,9 +348,10 @@ class LocalLedgerService {
         payload: {
           'name': trimmedName,
           'type': type,
-          'icon': icon,
+          'icon': cleanIconKey,
           'color': color,
           'sort_order': sortOrder,
+          'is_active': isActive,
         },
         nowMs: nowMs,
       );
@@ -360,9 +365,11 @@ class LocalLedgerService {
     required String deviceId,
     required String categoryId,
     String? name,
+    String? type,
     String? icon,
     String? color,
     int? sortOrder,
+    bool? isActive,
   }) async {
     return db.transaction(() async {
       final category = await _requireOwnedCategory(userId, categoryId);
@@ -371,14 +378,42 @@ class LocalLedgerService {
       if (newName.isEmpty) {
         throw const ValidationException(message: 'Nama kategori tidak boleh kosong.');
       }
+
+      if (type != null && type != category.type) {
+        if (type != 'income' && type != 'expense') {
+          throw const ValidationException(message: 'Tipe kategori harus income atau expense.');
+        }
+        final txRefs = await (db.select(db.localTransactions)
+              ..where((t) => t.categoryId.equals(categoryId))
+              ..limit(1))
+            .get();
+        final budgetRefs = await (db.select(db.localBudgetCategories)
+              ..where((b) => b.categoryId.equals(categoryId))
+              ..limit(1))
+            .get();
+        if (txRefs.isNotEmpty || budgetRefs.isNotEmpty) {
+          throw const ValidationException(
+            message: 'Tipe kategori tidak dapat diubah karena sudah digunakan pada transaksi atau anggaran.',
+          );
+        }
+      }
+
+      final newType = type ?? category.type;
+      final effectiveIcon = icon ?? category.icon;
+      final cleanIconKey = (effectiveIcon != null && effectiveIcon.trim().isNotEmpty)
+          ? effectiveIcon.split('|').first.trim()
+          : null;
+      final newIsActive = isActive ?? category.isActive;
       final newVersion = category.version + 1;
 
       await (db.update(db.localCategories)..where((t) => t.id.equals(categoryId))).write(
         LocalCategoriesCompanion(
           name: Value(newName),
-          icon: Value(icon ?? category.icon),
+          type: Value(newType),
+          icon: Value(effectiveIcon),
           color: Value(color ?? category.color),
           sortOrder: Value(sortOrder ?? category.sortOrder),
+          isActive: Value(newIsActive),
           version: Value(newVersion),
           updatedAtMs: Value(nowMs),
         ),
@@ -393,14 +428,62 @@ class LocalLedgerService {
         baseVersion: category.version,
         payload: {
           'name': newName,
-          'icon': icon ?? category.icon,
+          'type': newType,
+          'icon': cleanIconKey,
           'color': color ?? category.color,
           'sort_order': sortOrder ?? category.sortOrder,
+          'is_active': newIsActive,
         },
         nowMs: nowMs,
       );
 
       return (db.select(db.localCategories)..where((t) => t.id.equals(categoryId))).getSingle();
+    });
+  }
+
+  Future<void> reorderCategories({
+    required String userId,
+    required String deviceId,
+    required List<String> orderedCategoryIds,
+  }) async {
+    await db.transaction(() async {
+      final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
+      for (var i = 0; i < orderedCategoryIds.length; i++) {
+        final categoryId = orderedCategoryIds[i];
+        final category = await _requireOwnedCategory(userId, categoryId);
+        final targetOrder = i + 1;
+        if (category.sortOrder == targetOrder) {
+          continue;
+        }
+        final newVersion = category.version + 1;
+        await (db.update(db.localCategories)..where((t) => t.id.equals(categoryId))).write(
+          LocalCategoriesCompanion(
+            sortOrder: Value(targetOrder),
+            version: Value(newVersion),
+            updatedAtMs: Value(nowMs),
+          ),
+        );
+        final cleanIconKey = (category.icon != null && category.icon!.trim().isNotEmpty)
+            ? category.icon!.split('|').first.trim()
+            : null;
+        await _enqueueOutbox(
+          userId: userId,
+          deviceId: deviceId,
+          entityType: 'categories',
+          entityId: categoryId,
+          operationType: 'update',
+          baseVersion: category.version,
+          payload: {
+            'name': category.name,
+            'type': category.type,
+            'icon': cleanIconKey,
+            'color': category.color,
+            'sort_order': targetOrder,
+            'is_active': category.isActive,
+          },
+          nowMs: nowMs,
+        );
+      }
     });
   }
 
@@ -991,8 +1074,10 @@ class LocalLedgerService {
     required String name,
     required String startDate,
     required String endDate,
+    String periodType = 'monthly',
     int? totalLimit,
     int warningPercent = 80,
+    bool isActive = true,
     List<({String categoryId, int amountLimit})> categories = const [],
   }) async {
     final trimmedName = name.trim();
@@ -1015,12 +1100,12 @@ class LocalLedgerService {
               id: budgetId,
               userId: userId,
               name: trimmedName,
-              periodType: const Value('monthly'),
+              periodType: Value(periodType),
               startDate: startDate,
               endDate: endDate,
               totalLimit: Value(totalLimit),
               warningPercent: Value(warningPercent),
-              isActive: const Value(true),
+              isActive: Value(isActive),
               version: const Value(1),
               createdAtMs: nowMs,
               updatedAtMs: nowMs,
@@ -1071,11 +1156,12 @@ class LocalLedgerService {
         baseVersion: 0,
         payload: {
           'name': trimmedName,
-          'period_type': 'monthly',
+          'period_type': periodType,
           'start_date': startDate,
           'end_date': endDate,
           'total_limit': totalLimit,
           'warning_percent': warningPercent,
+          'is_active': isActive,
           'categories': outboxCategories,
         },
         nowMs: nowMs,
@@ -1140,15 +1226,54 @@ class LocalLedgerService {
 
     final effectiveLimit = budget.totalLimit ?? allocatedLimit;
     final effectiveUsed = budget.totalLimit != null ? totalExpense : allocatedUsed;
+    final totalRemaining = effectiveLimit - effectiveUsed;
     final totalPct = effectiveLimit > 0 ? (effectiveUsed / effectiveLimit) * 100.0 : 0.0;
+
+    final nowLocal = DateTime.now();
+    final today = DateTime(nowLocal.year, nowLocal.month, nowLocal.day);
+    final startDay = DateTime.parse(budget.startDate);
+    final endDay = DateTime.parse(budget.endDate);
+    final daysTotal = endDay.difference(startDay).inDays >= 0
+        ? endDay.difference(startDay).inDays + 1
+        : 1;
+    final int daysElapsed;
+    final int daysRemaining;
+    if (today.isBefore(startDay)) {
+      daysElapsed = 1;
+      daysRemaining = daysTotal;
+    } else if (today.isAfter(endDay)) {
+      daysElapsed = daysTotal;
+      daysRemaining = 0;
+    } else {
+      daysElapsed = (today.difference(startDay).inDays + 1).clamp(1, daysTotal);
+      daysRemaining = endDay.difference(today).inDays.clamp(0, daysTotal);
+    }
+    final dailyAverageSpent =
+        daysElapsed > 0 ? (effectiveUsed / daysElapsed).round() : 0;
+    final dailySafeRemaining = totalRemaining > 0
+        ? (totalRemaining / (daysRemaining > 0 ? daysRemaining : 1)).round()
+        : 0;
+    final projectedSurplus =
+        (effectiveLimit - (dailyAverageSpent * daysTotal))
+            .clamp(0, effectiveLimit);
+    final warningCategoriesCount = categoryItems
+        .where((c) => c['status'] == 'warning' || c['status'] == 'exceeded')
+        .length;
 
     return {
       'budget': budget,
       'total_limit': effectiveLimit,
       'total_used': effectiveUsed,
-      'total_remaining': effectiveLimit - effectiveUsed,
+      'total_remaining': totalRemaining,
       'percentage': double.parse(totalPct.toStringAsFixed(2)),
       'status': totalPct >= 100 ? 'exceeded' : (totalPct >= budget.warningPercent ? 'warning' : 'normal'),
+      'days_total': daysTotal,
+      'days_elapsed': daysElapsed,
+      'days_remaining': daysRemaining,
+      'daily_average_spent': dailyAverageSpent,
+      'daily_safe_remaining': dailySafeRemaining,
+      'projected_surplus': projectedSurplus,
+      'warning_categories_count': warningCategoriesCount,
       'categories': categoryItems,
     };
   }
@@ -1203,11 +1328,13 @@ class LocalLedgerService {
     required String deviceId,
     required String budgetId,
     String? name,
+    String? periodType,
     String? startDate,
     String? endDate,
     int? totalLimit,
     bool clearTotalLimit = false,
     int? warningPercent,
+    bool? isActive,
     List<({String categoryId, int amountLimit})>? categories,
   }) async {
     return db.transaction(() async {
@@ -1228,6 +1355,8 @@ class LocalLedgerService {
         throw const ValidationException(message: 'Batas peringatan harus antara 1 dan 100%.');
       }
 
+      final newPeriodType = periodType ?? budget.periodType;
+      final newIsActive = isActive ?? budget.isActive;
       final newTotalLimit = clearTotalLimit ? null : (totalLimit ?? budget.totalLimit);
       final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
       final newVersion = budget.version + 1;
@@ -1235,10 +1364,12 @@ class LocalLedgerService {
       await (db.update(db.localBudgets)..where((t) => t.id.equals(budgetId))).write(
         LocalBudgetsCompanion(
           name: Value(newName),
+          periodType: Value(newPeriodType),
           startDate: Value(newStart),
           endDate: Value(newEnd),
           totalLimit: Value(newTotalLimit),
           warningPercent: Value(newWarning),
+          isActive: Value(newIsActive),
           version: Value(newVersion),
           updatedAtMs: Value(nowMs),
         ),
@@ -1294,10 +1425,12 @@ class LocalLedgerService {
         baseVersion: budget.version,
         payload: {
           'name': newName,
+          'period_type': newPeriodType,
           'start_date': newStart,
           'end_date': newEnd,
           'total_limit': newTotalLimit,
           'warning_percent': newWarning,
+          'is_active': newIsActive,
           'categories': ?outboxCategories,
         },
         nowMs: nowMs,

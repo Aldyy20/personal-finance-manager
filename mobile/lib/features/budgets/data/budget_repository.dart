@@ -25,18 +25,22 @@ class BudgetRepository {
     required String name,
     required String startDate,
     required String endDate,
+    String periodType = 'monthly',
     int? totalLimit,
     int warningPercent = 80,
+    bool isActive = true,
     List<({String categoryId, int amountLimit})> categories = const [],
   }) {
     return ledgerService.createBudget(
       userId: userId,
       deviceId: deviceId,
       name: name,
+      periodType: periodType,
       startDate: startDate,
       endDate: endDate,
       totalLimit: totalLimit,
       warningPercent: warningPercent,
+      isActive: isActive,
       categories: categories,
     );
   }
@@ -46,11 +50,13 @@ class BudgetRepository {
     required String deviceId,
     required String budgetId,
     String? name,
+    String? periodType,
     String? startDate,
     String? endDate,
     int? totalLimit,
     bool clearTotalLimit = false,
     int? warningPercent,
+    bool? isActive,
     List<({String categoryId, int amountLimit})>? categories,
   }) {
     return ledgerService.updateBudget(
@@ -58,11 +64,13 @@ class BudgetRepository {
       deviceId: deviceId,
       budgetId: budgetId,
       name: name,
+      periodType: periodType,
       startDate: startDate,
       endDate: endDate,
       totalLimit: totalLimit,
       clearTotalLimit: clearTotalLimit,
       warningPercent: warningPercent,
+      isActive: isActive,
       categories: categories,
     );
   }
@@ -73,6 +81,15 @@ class BudgetRepository {
       deviceId: deviceId,
       budgetId: budgetId,
       isActive: false,
+    );
+  }
+
+  Future<LocalBudget> restoreBudget(String userId, String deviceId, String budgetId) {
+    return ledgerService.setBudgetActiveState(
+      userId: userId,
+      deviceId: deviceId,
+      budgetId: budgetId,
+      isActive: true,
     );
   }
 

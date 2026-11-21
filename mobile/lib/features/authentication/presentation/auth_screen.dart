@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../app/providers.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/theme/design_tokens.dart';
+import '../../../core/widgets/finance_widgets.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -105,6 +106,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
+    final env = ref.watch(envConfigProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -121,14 +123,34 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      'Personal Finance Manager',
-                      style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      'Masuk atau daftar untuk mencadangkan buku kas Anda ke Laravel MySQL dan sinkronisasi lintas perangkat.',
-                      style: textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+                    LivinHeroBanner(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const AppLogoBadge(size: 48, borderRadius: 14),
+                              const SizedBox(width: AppSpacing.md),
+                              Expanded(
+                                child: Text(
+                                  'Personal Finance Manager',
+                                  style: textTheme.titleLarge?.copyWith(
+                                    color: const Color(0xFFFFFFFF),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          Text(
+                            'Masuk atau daftar untuk mencadangkan buku kas Anda ke server ${env.apiBaseUrl} dan sinkronisasi lintas perangkat.',
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFFFFFFFF).withValues(alpha: 0.85),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     SegmentedButton<int>(

@@ -7,8 +7,11 @@ import 'package:personal_finance_manager/app/app.dart';
 import 'package:personal_finance_manager/app/providers.dart';
 import 'package:personal_finance_manager/core/database/app_database.dart';
 import 'package:personal_finance_manager/core/security/secure_storage_service.dart';
+import 'package:personal_finance_manager/features/categories/presentation/categories_screen.dart';
 import 'package:personal_finance_manager/features/receipt_scanner/application/ocr_parser_service.dart';
 import 'package:personal_finance_manager/features/reports/presentation/reports_screen.dart';
+import 'package:personal_finance_manager/features/settings/presentation/settings_screen.dart';
+import 'package:personal_finance_manager/features/transactions/presentation/transaction_form_sheet.dart';
 
 class _InMemorySecureStorage extends SecureStorageService {
   final Map<String, String> _store = {};
@@ -217,7 +220,12 @@ void main() {
         await tester.tap(find.byType(FloatingActionButton));
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Masuk'));
+        await tester.tap(
+          find.descendant(
+            of: find.byType(TransactionFormSheet),
+            matching: find.text('Pemasukan'),
+          ),
+        );
         await tester.pumpAndSettle();
 
         await tester.enterText(
@@ -228,9 +236,9 @@ void main() {
           find.widgetWithText(TextFormField, 'Deskripsi'),
           'Gaji Pokok',
         );
-        await tester.ensureVisible(find.text('Simpan Transaksi'));
+        await tester.ensureVisible(find.text('Simpan Pemasukan'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Simpan Transaksi'));
+        await tester.tap(find.text('Simpan Pemasukan'));
         await tester.pumpAndSettle();
 
         // Create Expense 200.000
@@ -245,9 +253,9 @@ void main() {
           find.widgetWithText(TextFormField, 'Deskripsi'),
           'Makan Siang',
         );
-        await tester.ensureVisible(find.text('Simpan Transaksi'));
+        await tester.ensureVisible(find.text('Simpan Pengeluaran'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Simpan Transaksi'));
+        await tester.tap(find.text('Simpan Pengeluaran'));
         await tester.pumpAndSettle();
 
         // Go to Transactions tab and inspect detail -> Edit -> Void
@@ -329,7 +337,7 @@ void main() {
         expect(find.text('INDOMARET SUDIRMAN'), findsWidgets);
         expect(find.text('35000'), findsWidgets);
 
-        final saveBtn = find.text('Konfirmasi & Simpan Transaksi + Struk');
+        final saveBtn = find.text('Simpan Transaksi Pengeluaran');
         await tester.ensureVisible(saveBtn);
         await tester.pumpAndSettle();
         await tester.tap(saveBtn);
@@ -381,6 +389,83 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.textContaining('Ringkasan,Total Pengeluaran,expense,-,35000'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'Categories UI displays Stitch tabs, search, custom icon/color creation, and active switch',
+      timeout: const Timeout(Duration(seconds: 30)),
+      (tester) async {
+        final db = await _pumpAppWithMemoryDb(tester);
+
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+
+        final settingsScrollable = find.descendant(
+          of: find.byType(SettingsScreen),
+          matching: find.byType(Scrollable),
+        ).first;
+        await tester.scrollUntilVisible(
+          find.text('Kelola Kategori'),
+          200,
+          scrollable: settingsScrollable,
+        );
+        Scrollable.ensureVisible(
+          tester.element(find.text('Kelola Kategori')),
+          alignment: 0.5,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Kelola Kategori'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Kelola Kategori Transaksi'), findsOneWidget);
+        expect(find.text('Makanan'), findsOneWidget);
+
+        // Switch segmented tab to Pemasukan -> Gaji appears
+        await tester.tap(find.text('Pemasukan').first);
+        await tester.pumpAndSettle();
+        expect(find.text('Gaji'), findsOneWidget);
+
+        // Switch back to Pengeluaran and open CategoryFormSheet
+        await tester.tap(find.text('Pengeluaran').first);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Tambah Kategori Baru'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryFormSheet), findsOneWidget);
+
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Nama Kategori'),
+          'Ngopi & Kafe',
+        );
+        await tester.enterText(
+          find.widgetWithText(
+            TextFormField,
+            'Deskripsi / Sub-catatan (Opsional)',
+          ),
+          'Ngopi sore santai',
+        );
+        await tester.tap(find.text('Simpan Kategori'));
+        await tester.pumpAndSettle();
+
+        final categories = await db.select(db.localCategories).get();
+        final created =
+            categories.where((c) => c.name == 'Ngopi & Kafe').toList();
+        expect(created.length, 1);
+        expect(created.first.color, '#D97706');
+        expect(created.first.icon, 'local_cafe|Ngopi sore santai');
+
+        // Search filters down to the newly created category and toggle switch works
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Cari nama kategori...'),
+          'Ngopi',
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Ngopi & Kafe'), findsOneWidget);
+
+        await tester.tap(find.bySemanticsLabel('Nonaktifkan Ngopi & Kafe'));
+        await tester.pumpAndSettle();
+        expect(find.text('Nonaktif'), findsOneWidget);
       },
     );
   });

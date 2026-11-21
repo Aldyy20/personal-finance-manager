@@ -68,6 +68,7 @@ class CategoryRepository {
     String? icon,
     String? color,
     int sortOrder = 0,
+    bool isActive = true,
   }) {
     return ledgerService.createCategory(
       userId: userId,
@@ -77,6 +78,7 @@ class CategoryRepository {
       icon: icon,
       color: color,
       sortOrder: sortOrder,
+      isActive: isActive,
     );
   }
 
@@ -85,18 +87,34 @@ class CategoryRepository {
     required String deviceId,
     required String categoryId,
     String? name,
+    String? type,
     String? icon,
     String? color,
     int? sortOrder,
+    bool? isActive,
   }) {
     return ledgerService.updateCategory(
       userId: userId,
       deviceId: deviceId,
       categoryId: categoryId,
       name: name,
+      type: type,
       icon: icon,
       color: color,
       sortOrder: sortOrder,
+      isActive: isActive,
+    );
+  }
+
+  Future<void> reorderCategories({
+    required String userId,
+    required String deviceId,
+    required List<String> orderedCategoryIds,
+  }) {
+    return ledgerService.reorderCategories(
+      userId: userId,
+      deviceId: deviceId,
+      orderedCategoryIds: orderedCategoryIds,
     );
   }
 

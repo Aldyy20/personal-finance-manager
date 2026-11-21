@@ -409,6 +409,11 @@ class SyncService
 
                     return ['entity_id' => $budget->id, 'entity_version' => $budget->version, 'data' => (new BudgetResource($budget))->resolve()];
                 })(),
+                'restore' => (function () use ($user, $entityId, $baseVersion) {
+                    $budget = $this->budgetService->restoreBudget($user, $entityId, $baseVersion);
+
+                    return ['entity_id' => $budget->id, 'entity_version' => $budget->version, 'data' => (new BudgetResource($budget))->resolve()];
+                })(),
                 default => throw new FinancialValidationException("Unsupported budget operation: {$operationType}."),
             },
             'user_settings' => match ($operationType) {

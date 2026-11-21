@@ -57,7 +57,17 @@ class BudgetService
             );
         }
 
-        return $this->ledgerService->executeAtomically(function () use ($user, $data, $name, $startDate, $endDate, $warningPercent, $totalLimit) {
+        $periodType = (string) ($data['period_type'] ?? 'monthly');
+        if (! in_array($periodType, ['monthly', 'custom', 'weekly'], true)) {
+            throw new FinancialValidationException(
+                'Budget period_type must be monthly, custom, or weekly.',
+                ['period_type' => ['Invalid budget period type.']]
+            );
+        }
+
+        $isActive = array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true;
+
+        return $this->ledgerService->executeAtomically(function () use ($user, $data, $name, $periodType, $startDate, $endDate, $warningPercent, $totalLimit, $isActive) {
             $budgetId = (string) ($data['id'] ?? Str::uuid());
             if (Budget::withTrashed()->where('id', $budgetId)->exists()) {
                 throw new EntityConflictException('Budget ID already exists.');
@@ -67,12 +77,12 @@ class BudgetService
                 'id' => $budgetId,
                 'user_id' => $user->id,
                 'name' => $name,
-                'period_type' => (string) ($data['period_type'] ?? 'monthly'),
+                'period_type' => $periodType,
                 'start_date' => $startDate,
                 'end_date' => $endDate,
                 'total_limit' => $totalLimit,
                 'warning_percent' => $warningPercent,
-                'is_active' => true,
+                'is_active' => $isActive,
                 'version' => 1,
             ]);
 
@@ -128,6 +138,13 @@ class BudgetService
                 }
             }
 
+            if (array_key_exists('period_type', $data) && ! in_array((string) $data['period_type'], ['monthly', 'custom', 'weekly'], true)) {
+                throw new FinancialValidationException(
+                    'Budget period_type must be monthly, custom, or weekly.',
+                    ['period_type' => ['Invalid budget period type.']]
+                );
+            }
+
             $updatable = array_intersect_key($data, array_flip([
                 'name',
                 'period_type',
@@ -135,6 +152,7 @@ class BudgetService
                 'end_date',
                 'total_limit',
                 'warning_percent',
+                'is_active',
             ]));
 
             $budget->fill($updatable);
@@ -166,6 +184,30 @@ class BudgetService
             }
 
             $budget->is_active = false;
+            $budget->version = $budget->version + 1;
+            $budget->save();
+
+            $this->syncRecorder->recordSyncChange($user->id, 'budgets', $budget->id, 'update', $budget->version);
+
+            return $budget->fresh(['budgetCategories.category']);
+        });
+    }
+
+    public function restoreBudget(User $user, string $budgetId, ?int $baseVersion = null): Budget
+    {
+        return $this->ledgerService->executeAtomically(function () use ($user, $budgetId, $baseVersion) {
+            $budget = $this->findAndLockOwnedBudget($user->id, $budgetId);
+
+            if ($baseVersion !== null && $budget->version !== $baseVersion) {
+                throw new EntityConflictException('Budget version conflict detected.', [
+                    'entity_type' => 'budgets',
+                    'entity_id' => $budget->id,
+                    'server_version' => $budget->version,
+                    'base_version' => $baseVersion,
+                ]);
+            }
+
+            $budget->is_active = true;
             $budget->version = $budget->version + 1;
             $budget->save();
 
@@ -241,6 +283,31 @@ class BudgetService
             ? round(($effectiveTotalUsed / $effectiveTotalLimit) * 100, 2)
             : 0.0;
 
+        $startLocal = Carbon::parse($budget->start_date->format('Y-m-d'), $timezone)->startOfDay();
+        $endLocal = Carbon::parse($budget->end_date->format('Y-m-d'), $timezone)->startOfDay();
+        $daysTotal = max(1, (int) $startLocal->diffInDays($endLocal) + 1);
+        $todayLocal = Carbon::now($timezone)->startOfDay();
+
+        if ($todayLocal->lt($startLocal)) {
+            $daysElapsed = 1;
+            $daysRemaining = $daysTotal;
+        } elseif ($todayLocal->gt($endLocal)) {
+            $daysElapsed = $daysTotal;
+            $daysRemaining = 0;
+        } else {
+            $daysElapsed = max(1, min($daysTotal, (int) $startLocal->diffInDays($todayLocal) + 1));
+            $daysRemaining = max(0, (int) $todayLocal->diffInDays($endLocal));
+        }
+
+        $dailyAverageSpent = (int) round($effectiveTotalUsed / max(1, $daysElapsed));
+        $dailySafeRemaining = $totalRemaining > 0
+            ? (int) round($totalRemaining / max(1, $daysRemaining > 0 ? $daysRemaining : 1))
+            : 0;
+        $projectedSurplus = max(0, $effectiveTotalLimit - ($dailyAverageSpent * $daysTotal));
+        $warningCategoriesCount = collect($categoryBreakdown)
+            ->whereIn('status', ['warning', 'exceeded'])
+            ->count();
+
         return [
             'budget' => [
                 'id' => $budget->id,
@@ -259,6 +326,13 @@ class BudgetService
                 'total_remaining' => $totalRemaining,
                 'percentage' => $totalPercentage,
                 'status' => $this->resolveThresholdStatus($totalPercentage, $budget->warning_percent),
+                'days_total' => $daysTotal,
+                'days_elapsed' => $daysElapsed,
+                'days_remaining' => $daysRemaining,
+                'daily_average_spent' => $dailyAverageSpent,
+                'daily_safe_remaining' => $dailySafeRemaining,
+                'projected_surplus' => $projectedSurplus,
+                'warning_categories_count' => $warningCategoriesCount,
             ],
             'categories' => $categoryBreakdown,
         ];

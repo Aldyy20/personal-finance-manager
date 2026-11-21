@@ -1453,7 +1453,7 @@ Offline access must not be treated as server authentication for new remote opera
 
 Base URL:
 
-`https://your-domain.com/api/v1`
+`https://keuangan.underdevelopment.web.id/api/v1`
 
 All endpoints return JSON.
 

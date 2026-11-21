@@ -1,6 +1,6 @@
 # API Specification — Personal Finance Manager v1.0
 
-**Base URL (Production):** `https://your-domain.com/api/v1`  
+**Base URL (Production):** `https://keuangan.underdevelopment.web.id/api/v1`  
 **Base URL (Local Development):** `http://127.0.0.1:8000/api/v1` (atau `http://10.0.2.2:8000/api/v1` untuk Android Emulator)  
 **Format:** JSON (`Accept: application/json`, `Content-Type: application/json`), upload nota menggunakan `multipart/form-data`.  
 **Authentication:** Laravel Sanctum Bearer Token (`Authorization: Bearer {access_token}`).

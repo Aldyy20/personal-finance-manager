@@ -1,6 +1,10 @@
 enum AppEnvironment { dev, staging, prod }
 
 class EnvConfig {
+  static const String productionDomain = 'keuangan.underdevelopment.web.id';
+  static const String productionBaseUrl =
+      'https://keuangan.underdevelopment.web.id/api/v1';
+
   const EnvConfig({
     required this.environment,
     required this.apiBaseUrl,
@@ -16,18 +20,18 @@ class EnvConfig {
   final int maxReceiptSizeBytes;
 
   factory EnvConfig.fromEnvironment() {
-    const rawEnv = String.fromEnvironment('APP_ENV', defaultValue: 'dev');
+    const rawEnv = String.fromEnvironment('APP_ENV', defaultValue: 'prod');
     const customBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
 
     final env = switch (rawEnv.toLowerCase()) {
-      'prod' || 'production' => AppEnvironment.prod,
+      'dev' || 'local' || 'development' => AppEnvironment.dev,
       'staging' => AppEnvironment.staging,
-      _ => AppEnvironment.dev,
+      _ => AppEnvironment.prod,
     };
 
     final defaultBaseUrl = switch (env) {
-      AppEnvironment.prod => 'https://your-domain.com/api/v1',
-      AppEnvironment.staging => 'https://staging.your-domain.com/api/v1',
+      AppEnvironment.prod => productionBaseUrl,
+      AppEnvironment.staging => productionBaseUrl,
       // Uses 127.0.0.1 for USB debugging via `adb reverse tcp:8000 tcp:8000`
       // and local integration tests. Override with --dart-define=API_BASE_URL=...
       AppEnvironment.dev => 'http://127.0.0.1:8000/api/v1',
