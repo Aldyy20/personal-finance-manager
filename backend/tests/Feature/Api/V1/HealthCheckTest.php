@@ -82,9 +82,11 @@ class HealthCheckTest extends TestCase
             ->assertJson([
                 'success' => true,
                 'data' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                    ],
                 ],
             ]);
     }

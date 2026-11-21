@@ -3,23 +3,31 @@
 namespace Database\Seeders;
 
 use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use App\Services\UserBootstrapService;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $demoEmail = 'demo@personalfinance.test';
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        if (User::query()->where('email', $demoEmail)->exists()) {
+            return;
+        }
+
+        $user = User::query()->create([
+            'name' => 'Demo User',
+            'email' => $demoEmail,
+            'password' => Hash::make('password123'),
+            'email_verified_at' => now()->utc(),
+        ]);
+
+        app(UserBootstrapService::class)->bootstrapNewUser($user, [
+            'name' => 'Demo Android Phone',
+            'platform' => 'android',
+            'app_version' => '1.0.0',
         ]);
     }
 }
