@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../core/theme/design_tokens.dart';
+import '../features/transactions/presentation/transaction_form_sheet.dart';
 
 class MainShell extends StatelessWidget {
   const MainShell({
@@ -47,13 +48,7 @@ class MainShell extends StatelessWidget {
   }
 
   void _onAddTransactionPressed(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Form Tambah Transaksi akan diimplementasikan pada Phase 6.',
-        ),
-      ),
-    );
+    TransactionFormSheet.show(context);
   }
 
   @override

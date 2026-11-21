@@ -140,7 +140,10 @@ class AuthRepository {
 
     // Prevent cross-account leakage when switching accounts on the same device
     final previousUserId = await secureStorage.getUserId();
-    if (previousUserId != null && previousUserId != userId) {
+    final hasOfflineGuest = await (db.select(db.localUsers)
+          ..where((t) => t.id.equals('local-offline-user')))
+        .getSingleOrNull();
+    if ((previousUserId != null && previousUserId != userId) || hasOfflineGuest != null) {
       await _clearAllLocalTables();
     }
 

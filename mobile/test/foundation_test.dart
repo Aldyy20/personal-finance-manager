@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +53,8 @@ class _InMemorySecureStorage extends SecureStorageService {
 }
 
 void main() {
+  driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+
   group('Phase 1 Foundation Verification', () {
     test('Material Design 3 is active for Light and Dark themes', () {
       final light = AppTheme.lightTheme;
@@ -96,23 +98,36 @@ void main() {
       expect(rows.first.lastCursor, 42);
     });
 
-    testWidgets('App renders Material 3 NavigationBar with 5 tabs and FAB', (tester) async {
+    testWidgets(
+      'App renders Material 3 NavigationBar with 5 tabs and FAB',
+      timeout: const Timeout(Duration(seconds: 15)),
+      (tester) async {
       final db = AppDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWithValue(db),
+          secureStorageServiceProvider.overrideWithValue(_InMemorySecureStorage()),
+          backendHealthProvider.overrideWith(
+            (ref) async => {
+              'status': 'ok',
+              'version': 'v1',
+              'database': 'connected',
+            },
+          ),
+        ],
+      );
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        container.dispose();
+        await tester.runAsync(() => db.close());
+        await tester.pump(const Duration(milliseconds: 50));
+      });
 
       await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            appDatabaseProvider.overrideWithValue(db),
-            secureStorageServiceProvider.overrideWithValue(_InMemorySecureStorage()),
-            backendHealthProvider.overrideWith(
-              (ref) async => {
-                'status': 'ok',
-                'version': 'v1',
-                'database': 'connected',
-              },
-            ),
-          ],
+        UncontrolledProviderScope(
+          container: container,
           child: const PersonalFinanceApp(),
         ),
       );
@@ -120,8 +135,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Personal Finance Manager'), findsOneWidget);
-      expect(find.text('Material Design 3: Active'), findsOneWidget);
-      expect(find.text('Connected (SELECT 1 OK)'), findsOneWidget);
+      expect(find.text('TOTAL SALDO AKTIF (1 REKENING)'), findsOneWidget);
+      expect(find.text('Cash'), findsOneWidget);
       expect(find.byType(NavigationBar), findsOneWidget);
       expect(find.text('Home'), findsOneWidget);
       expect(find.text('Transactions'), findsOneWidget);

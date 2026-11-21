@@ -1198,6 +1198,509 @@ class LocalLedgerService {
     };
   }
 
+  Future<LocalBudget> updateBudget({
+    required String userId,
+    required String deviceId,
+    required String budgetId,
+    String? name,
+    String? startDate,
+    String? endDate,
+    int? totalLimit,
+    bool clearTotalLimit = false,
+    int? warningPercent,
+    List<({String categoryId, int amountLimit})>? categories,
+  }) async {
+    return db.transaction(() async {
+      final budget = await _requireOwnedBudget(userId, budgetId);
+      final newName = name != null ? name.trim() : budget.name;
+      if (newName.isEmpty) {
+        throw const ValidationException(message: 'Nama anggaran wajib diisi.');
+      }
+
+      final newStart = startDate ?? budget.startDate;
+      final newEnd = endDate ?? budget.endDate;
+      if (newEnd.compareTo(newStart) < 0) {
+        throw const ValidationException(message: 'Tanggal selesai harus >= tanggal mulai.');
+      }
+
+      final newWarning = warningPercent ?? budget.warningPercent;
+      if (newWarning < 1 || newWarning > 100) {
+        throw const ValidationException(message: 'Batas peringatan harus antara 1 dan 100%.');
+      }
+
+      final newTotalLimit = clearTotalLimit ? null : (totalLimit ?? budget.totalLimit);
+      final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
+      final newVersion = budget.version + 1;
+
+      await (db.update(db.localBudgets)..where((t) => t.id.equals(budgetId))).write(
+        LocalBudgetsCompanion(
+          name: Value(newName),
+          startDate: Value(newStart),
+          endDate: Value(newEnd),
+          totalLimit: Value(newTotalLimit),
+          warningPercent: Value(newWarning),
+          version: Value(newVersion),
+          updatedAtMs: Value(nowMs),
+        ),
+      );
+
+      List<Map<String, dynamic>>? outboxCategories;
+      if (categories != null) {
+        await (db.update(db.localBudgetCategories)..where((t) => t.budgetId.equals(budgetId))).write(
+          LocalBudgetCategoriesCompanion(deletedAtMs: Value(nowMs), updatedAtMs: Value(nowMs)),
+        );
+
+        outboxCategories = [];
+        for (final item in categories) {
+          if (item.amountLimit <= 0) {
+            throw const ValidationException(message: 'Batas anggaran kategori harus > 0.');
+          }
+          final cat = await _requireOwnedCategory(userId, item.categoryId);
+          if (cat.type != 'expense') {
+            throw const ValidationException(
+              message: 'Anggaran hanya dapat menerima kategori pengeluaran (expense).',
+            );
+          }
+
+          final bcId = _uuid.v4();
+          await db.into(db.localBudgetCategories).insert(
+                LocalBudgetCategoriesCompanion.insert(
+                  id: bcId,
+                  userId: userId,
+                  budgetId: budgetId,
+                  categoryId: cat.id,
+                  categoryType: const Value('expense'),
+                  amountLimit: item.amountLimit,
+                  version: const Value(1),
+                  createdAtMs: nowMs,
+                  updatedAtMs: nowMs,
+                ),
+              );
+
+          outboxCategories.add({
+            'id': bcId,
+            'category_id': cat.id,
+            'amount_limit': item.amountLimit,
+          });
+        }
+      }
+
+      await _enqueueOutbox(
+        userId: userId,
+        deviceId: deviceId,
+        entityType: 'budgets',
+        entityId: budgetId,
+        operationType: 'update',
+        baseVersion: budget.version,
+        payload: {
+          'name': newName,
+          'start_date': newStart,
+          'end_date': newEnd,
+          'total_limit': newTotalLimit,
+          'warning_percent': newWarning,
+          'categories': ?outboxCategories,
+        },
+        nowMs: nowMs,
+      );
+
+      return (db.select(db.localBudgets)..where((t) => t.id.equals(budgetId))).getSingle();
+    });
+  }
+
+  Future<LocalBudget> setBudgetActiveState({
+    required String userId,
+    required String deviceId,
+    required String budgetId,
+    required bool isActive,
+  }) async {
+    return db.transaction(() async {
+      final budget = await _requireOwnedBudget(userId, budgetId);
+      final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
+
+      await (db.update(db.localBudgets)..where((t) => t.id.equals(budgetId))).write(
+        LocalBudgetsCompanion(
+          isActive: Value(isActive),
+          version: Value(budget.version + 1),
+          updatedAtMs: Value(nowMs),
+        ),
+      );
+
+      await _enqueueOutbox(
+        userId: userId,
+        deviceId: deviceId,
+        entityType: 'budgets',
+        entityId: budgetId,
+        operationType: isActive ? 'restore' : 'archive',
+        baseVersion: budget.version,
+        payload: const {},
+        nowMs: nowMs,
+      );
+
+      return (db.select(db.localBudgets)..where((t) => t.id.equals(budgetId))).getSingle();
+    });
+  }
+
+  // =========================================================================
+  // RECEIPTS & OCR
+  // =========================================================================
+
+  Future<LocalReceipt> attachReceipt({
+    required String userId,
+    required String deviceId,
+    required String transactionId,
+    required String filePath,
+    String? localFilePath,
+    String? fileName,
+    String mimeType = 'image/jpeg',
+    int fileSize = 0,
+    String? checksum,
+    String? ocrText,
+    Map<String, dynamic>? extractedData,
+  }) async {
+    return db.transaction(() async {
+      await _requireOwnedTransaction(userId, transactionId);
+      final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
+      final receiptId = _uuid.v4();
+
+      await db.into(db.localReceipts).insert(
+            LocalReceiptsCompanion.insert(
+              id: receiptId,
+              transactionId: transactionId,
+              userId: userId,
+              filePath: filePath,
+              localFilePath: Value(localFilePath),
+              fileName: Value(fileName),
+              mimeType: mimeType,
+              fileSize: fileSize,
+              checksum: Value(checksum),
+              ocrText: Value(ocrText),
+              extractedDataJson: Value(
+                extractedData != null ? jsonEncode(extractedData) : null,
+              ),
+              isUploaded: const Value(false),
+              version: const Value(1),
+              createdAtMs: nowMs,
+              updatedAtMs: nowMs,
+            ),
+          );
+
+      await _enqueueOutbox(
+        userId: userId,
+        deviceId: deviceId,
+        entityType: 'receipts',
+        entityId: receiptId,
+        operationType: 'create',
+        baseVersion: 0,
+        payload: {
+          'transaction_id': transactionId,
+          'file_name': fileName,
+          'mime_type': mimeType,
+          'file_size': fileSize,
+          'ocr_text': ocrText,
+          'extracted_data': extractedData,
+        },
+        nowMs: nowMs,
+      );
+
+      return (db.select(db.localReceipts)..where((t) => t.id.equals(receiptId))).getSingle();
+    });
+  }
+
+  Future<void> deleteReceipt({
+    required String userId,
+    required String deviceId,
+    required String receiptId,
+  }) async {
+    return db.transaction(() async {
+      final receipt = await (db.select(db.localReceipts)
+            ..where((t) => t.id.equals(receiptId) & t.userId.equals(userId)))
+          .getSingleOrNull();
+      if (receipt == null) {
+        throw const ForbiddenException(message: 'Lampiran struk tidak ditemukan.');
+      }
+
+      final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
+      await (db.update(db.localReceipts)..where((t) => t.id.equals(receiptId))).write(
+        LocalReceiptsCompanion(
+          deletedAtMs: Value(nowMs),
+          version: Value(receipt.version + 1),
+          updatedAtMs: Value(nowMs),
+        ),
+      );
+
+      await _enqueueOutbox(
+        userId: userId,
+        deviceId: deviceId,
+        entityType: 'receipts',
+        entityId: receiptId,
+        operationType: 'delete',
+        baseVersion: receipt.version,
+        payload: {'transaction_id': receipt.transactionId},
+        nowMs: nowMs,
+      );
+    });
+  }
+
+  // =========================================================================
+  // LOCAL REPORTING QUERIES
+  // =========================================================================
+
+  Future<List<Map<String, dynamic>>> getLocalCategoryBreakdown(
+    String userId, {
+    required String type,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    if (type != 'income' && type != 'expense') {
+      throw const ValidationException(message: 'Tipe rincian kategori harus income atau expense.');
+    }
+
+    final categories = await (db.select(db.localCategories)
+          ..where((t) => t.userId.equals(userId)))
+        .get();
+    final catMap = {for (final c in categories) c.id: c};
+
+    final query = db.select(db.localTransactions)
+      ..where((t) {
+        var predicate = t.userId.equals(userId) &
+            t.type.equals(type) &
+            t.status.equals('posted') &
+            t.deletedAtMs.isNull();
+        if (startDate != null && endDate != null) {
+          predicate = predicate &
+              t.transactionDateMs.isBetweenValues(
+                startDate.toUtc().millisecondsSinceEpoch,
+                endDate.toUtc().millisecondsSinceEpoch,
+              );
+        } else if (startDate != null) {
+          predicate = predicate &
+              t.transactionDateMs.isBiggerOrEqualValue(startDate.toUtc().millisecondsSinceEpoch);
+        } else if (endDate != null) {
+          predicate = predicate &
+              t.transactionDateMs.isSmallerOrEqualValue(endDate.toUtc().millisecondsSinceEpoch);
+        }
+        return predicate;
+      });
+
+    final txList = await query.get();
+    final groupedAmount = <String, int>{};
+    final groupedCount = <String, int>{};
+    var grandTotal = 0;
+
+    for (final tx in txList) {
+      final key = tx.categoryId ?? 'uncategorized';
+      groupedAmount[key] = (groupedAmount[key] ?? 0) + tx.amount;
+      groupedCount[key] = (groupedCount[key] ?? 0) + 1;
+      grandTotal += tx.amount;
+    }
+
+    final items = groupedAmount.entries.map((entry) {
+      final cat = catMap[entry.key];
+      final amount = entry.value;
+      final pct = grandTotal > 0 ? (amount / grandTotal) * 100.0 : 0.0;
+      return {
+        'category_id': entry.key,
+        'category_name': cat?.name ?? 'Lainnya',
+        'category_icon': cat?.icon,
+        'category_color': cat?.color,
+        'total_amount': amount,
+        'transaction_count': groupedCount[entry.key] ?? 0,
+        'percentage': double.parse(pct.toStringAsFixed(2)),
+      };
+    }).toList()
+      ..sort((a, b) => (b['total_amount'] as int).compareTo(a['total_amount'] as int));
+
+    return items;
+  }
+
+  Future<List<Map<String, dynamic>>> getLocalMonthlyComparison(
+    String userId, {
+    int months = 6,
+  }) async {
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+
+    final now = DateTime.now().toUtc();
+    final results = <Map<String, dynamic>>[];
+
+    for (var offset = months - 1; offset >= 0; offset--) {
+      final monthStart = DateTime.utc(now.year, now.month - offset, 1);
+      final monthEnd = DateTime.utc(monthStart.year, monthStart.month + 1, 0, 23, 59, 59, 999);
+
+      final txs = await (db.select(db.localTransactions)
+            ..where(
+              (t) =>
+                  t.userId.equals(userId) &
+                  t.status.equals('posted') &
+                  t.deletedAtMs.isNull() &
+                  t.type.isIn(['income', 'expense']) &
+                  t.transactionDateMs.isBetweenValues(
+                    monthStart.millisecondsSinceEpoch,
+                    monthEnd.millisecondsSinceEpoch,
+                  ),
+            ))
+          .get();
+
+      var income = 0;
+      var expense = 0;
+      for (final tx in txs) {
+        if (tx.type == 'income') {
+          income += tx.amount;
+        } else if (tx.type == 'expense') {
+          expense += tx.amount;
+        }
+      }
+
+      results.add({
+        'year': monthStart.year,
+        'month': monthStart.month,
+        'month_label': '${monthNames[monthStart.month - 1]} ${monthStart.year}',
+        'short_label': monthNames[monthStart.month - 1],
+        'income': income,
+        'expense': expense,
+        'net_cash_flow': income - expense,
+      });
+    }
+
+    return results;
+  }
+
+  Future<List<Map<String, dynamic>>> getLocalAccountReport(String userId) async {
+    final accounts = await (db.select(db.localAccounts)
+          ..where((t) => t.userId.equals(userId) & t.deletedAtMs.isNull())
+          ..orderBy([
+            (t) => OrderingTerm.desc(t.isActive),
+            (t) => OrderingTerm.asc(t.name),
+          ]))
+        .get();
+
+    final report = <Map<String, dynamic>>[];
+    for (final acc in accounts) {
+      final movements = await (db.select(db.localAccountMovements)
+            ..where((t) => t.accountId.equals(acc.id)))
+          .get();
+      report.add({
+        'id': acc.id,
+        'name': acc.name,
+        'account_type': acc.accountType,
+        'institution_name': acc.institutionName,
+        'opening_balance': acc.openingBalance,
+        'balance_cache': acc.balanceCache,
+        'is_active': acc.isActive,
+        'movement_count': movements.length,
+      });
+    }
+    return report;
+  }
+
+  // =========================================================================
+  // LOCAL OFFLINE WORKSPACE BOOTSTRAP (NO OUTBOX NOISE)
+  // =========================================================================
+
+  Future<void> ensureDefaultOfflineWorkspace(String userId) async {
+    final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
+    final dateStr = DateTime.now().toUtc().toIso8601String().substring(0, 10);
+
+    await db.transaction(() async {
+      final existingUser = await (db.select(db.localUsers)
+            ..where((t) => t.id.equals(userId)))
+          .getSingleOrNull();
+      if (existingUser == null) {
+        await db.into(db.localUsers).insert(
+              LocalUsersCompanion.insert(
+                id: userId,
+                name: 'Dompet Pribadi',
+                email: 'mode.lokal@offline',
+                createdAtMs: nowMs,
+                updatedAtMs: nowMs,
+              ),
+            );
+      }
+
+      final existingAccounts = await (db.select(db.localAccounts)
+            ..where((t) => t.userId.equals(userId) & t.deletedAtMs.isNull()))
+          .get();
+      if (existingAccounts.isEmpty) {
+        final cashId = _uuid.v4();
+        await db.into(db.localAccounts).insert(
+              LocalAccountsCompanion.insert(
+                id: cashId,
+                userId: userId,
+                name: 'Cash',
+                accountType: 'cash',
+                openingBalance: const Value(0),
+                openingBalanceDate: dateStr,
+                balanceCache: const Value(0),
+                icon: const Value('payments'),
+                color: const Value('#00796B'),
+                isActive: const Value(true),
+                version: const Value(1),
+                createdAtMs: nowMs,
+                updatedAtMs: nowMs,
+              ),
+            );
+        await db.into(db.localAccountMovements).insert(
+              LocalAccountMovementsCompanion.insert(
+                id: _uuid.v4(),
+                userId: userId,
+                accountId: cashId,
+                postingGroupId: _uuid.v4(),
+                movementType: 'opening',
+                amountSigned: 0,
+                createdAtMs: nowMs,
+              ),
+            );
+      }
+
+      final existingCats = await (db.select(db.localCategories)
+            ..where((t) => t.userId.equals(userId) & t.deletedAtMs.isNull()))
+          .get();
+      if (existingCats.isEmpty) {
+        final defaultCats = <({String name, String type, int order, String icon})>[
+          (name: 'Gaji', type: 'income', order: 1, icon: 'payments'),
+          (name: 'Bonus', type: 'income', order: 2, icon: 'card_giftcard'),
+          (name: 'Investasi', type: 'income', order: 3, icon: 'trending_up'),
+          (name: 'Makanan', type: 'expense', order: 1, icon: 'restaurant'),
+          (name: 'Transportasi', type: 'expense', order: 2, icon: 'directions_car'),
+          (name: 'Belanja', type: 'expense', order: 3, icon: 'shopping_bag'),
+          (name: 'Tagihan', type: 'expense', order: 4, icon: 'receipt_long'),
+          (name: 'Hiburan', type: 'expense', order: 5, icon: 'movie'),
+          (name: 'Kesehatan', type: 'expense', order: 6, icon: 'medical_services'),
+          (name: 'Pendidikan', type: 'expense', order: 7, icon: 'school'),
+        ];
+        for (final c in defaultCats) {
+          await db.into(db.localCategories).insert(
+                LocalCategoriesCompanion.insert(
+                  id: _uuid.v4(),
+                  userId: userId,
+                  name: c.name,
+                  type: c.type,
+                  icon: Value(c.icon),
+                  isDefault: const Value(true),
+                  isActive: const Value(true),
+                  sortOrder: Value(c.order),
+                  version: const Value(1),
+                  createdAtMs: nowMs,
+                  updatedAtMs: nowMs,
+                ),
+              );
+        }
+      }
+    });
+  }
+
   // =========================================================================
   // PRIVATE HELPERS
   // =========================================================================
@@ -1230,6 +1733,30 @@ class LocalLedgerService {
       throw const ForbiddenException(message: 'Transaksi tidak ditemukan atau bukan milik pengguna.');
     }
     return tx;
+  }
+
+  Future<LocalBudget> _requireOwnedBudget(String userId, String budgetId) async {
+    final budget = await (db.select(db.localBudgets)
+          ..where((t) => t.id.equals(budgetId) & t.userId.equals(userId)))
+        .getSingleOrNull();
+    if (budget == null) {
+      throw const ForbiddenException(message: 'Anggaran tidak ditemukan atau bukan milik pengguna.');
+    }
+    return budget;
+  }
+
+  Future<void> updateLocalProfileName(String userId, String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const ValidationException(message: 'Nama profil tidak boleh kosong.');
+    }
+    final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
+    await (db.update(db.localUsers)..where((t) => t.id.equals(userId))).write(
+      LocalUsersCompanion(
+        name: Value(trimmed),
+        updatedAtMs: Value(nowMs),
+      ),
+    );
   }
 
   Future<void> _bumpAccountVersion(LocalAccount account, int nowMs) async {

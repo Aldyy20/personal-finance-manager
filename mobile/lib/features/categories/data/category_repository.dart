@@ -108,5 +108,14 @@ class CategoryRepository {
       isActive: false,
     );
   }
+
+  Future<LocalCategory> restoreCategory(String userId, String deviceId, String categoryId) {
+    return ledgerService.setCategoryActiveState(
+      userId: userId,
+      deviceId: deviceId,
+      categoryId: categoryId,
+      isActive: true,
+    );
+  }
 }
 

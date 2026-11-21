@@ -77,6 +77,22 @@ class ApiClient {
     }
   }
 
+  Future<ApiResponse<T>> put<T>(
+    String path, {
+    dynamic data,
+    T Function(dynamic rawData)? parseData,
+  }) async {
+    try {
+      final response = await _dio.put<Map<String, dynamic>>(
+        path,
+        data: data,
+      );
+      return ApiResponse.fromJson(response.data ?? const {}, parseData);
+    } on DioException catch (e) {
+      throw _mapDioException(e);
+    }
+  }
+
   AppException _mapDioException(DioException e) {
     final status = e.response?.statusCode;
     final body = e.response?.data;
