@@ -1,0 +1,6 @@
+# Copy this file to mobile/android/key.properties (never commit real key.properties)
+storePassword=CHANGE_ME_KEYSTORE_PASSWORD
+keyPassword=CHANGE_ME_KEY_PASSWORD
+keyAlias=pfm_release_key
+storeFile=../release-keystore.jks
+
