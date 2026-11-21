@@ -1,6 +1,8 @@
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../core/theme/design_tokens.dart';
+
 class MainShell extends StatelessWidget {
   const MainShell({
     super.key,
@@ -9,60 +11,108 @@ class MainShell extends StatelessWidget {
 
   final StatefulNavigationShell navigationShell;
 
+  static const _destinations = [
+    (
+      label: 'Home',
+      icon: Icons.home_outlined,
+      selectedIcon: Icons.home,
+    ),
+    (
+      label: 'Transactions',
+      icon: Icons.receipt_long_outlined,
+      selectedIcon: Icons.receipt_long,
+    ),
+    (
+      label: 'Accounts',
+      icon: Icons.account_balance_wallet_outlined,
+      selectedIcon: Icons.account_balance_wallet,
+    ),
+    (
+      label: 'Reports',
+      icon: Icons.bar_chart_outlined,
+      selectedIcon: Icons.bar_chart,
+    ),
+    (
+      label: 'Settings',
+      icon: Icons.settings_outlined,
+      selectedIcon: Icons.settings,
+    ),
+  ];
+
+  void _onSelectBranch(int index) {
+    navigationShell.goBranch(
+      index,
+      initialLocation: index == navigationShell.currentIndex,
+    );
+  }
+
+  void _onAddTransactionPressed(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Form Tambah Transaksi akan diimplementasikan pada Phase 6.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final useRail = width >= AppSpacing.compactBreakpoint;
+
+    if (useRail) {
+      return Scaffold(
+        body: SafeArea(
+          child: Row(
+            children: [
+              NavigationRail(
+                selectedIndex: navigationShell.currentIndex,
+                onDestinationSelected: _onSelectBranch,
+                leading: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                  child: FloatingActionButton(
+                    onPressed: () => _onAddTransactionPressed(context),
+                    tooltip: 'Tambah Transaksi',
+                    child: const Icon(Icons.add),
+                  ),
+                ),
+                destinations: [
+                  for (final dest in _destinations)
+                    NavigationRailDestination(
+                      icon: Icon(dest.icon),
+                      selectedIcon: Icon(dest.selectedIcon),
+                      label: Text(dest.label),
+                    ),
+                ],
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: navigationShell),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: navigationShell,
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Tambah Transaksi akan diimplementasikan pada Phase 4/6.',
-              ),
-            ),
-          );
-        },
+        onPressed: () => _onAddTransactionPressed(context),
         tooltip: 'Tambah Transaksi',
         child: const Icon(Icons.add),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: (index) {
-          navigationShell.goBranch(
-            index,
-            initialLocation: index == navigationShell.currentIndex,
-          );
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
-            label: 'Transactions',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            selectedIcon: Icon(Icons.account_balance_wallet),
-            label: 'Accounts',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart),
-            label: 'Reports',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
+        onDestinationSelected: _onSelectBranch,
+        destinations: [
+          for (final dest in _destinations)
+            NavigationDestination(
+              icon: Icon(dest.icon),
+              selectedIcon: Icon(dest.selectedIcon),
+              label: dest.label,
+            ),
         ],
       ),
     );
   }
 }
-

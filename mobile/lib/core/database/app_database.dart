@@ -5,22 +5,49 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'tables/finance_tables.dart';
 import 'tables/local_sync_state_table.dart';
 
 part 'app_database.g.dart';
 
-@DriftDatabase(tables: [LocalSyncState])
+@DriftDatabase(
+  tables: [
+    LocalSyncState,
+    LocalUsers,
+    LocalUserSettings,
+    LocalDevices,
+    LocalAccounts,
+    LocalCategories,
+    LocalTransactions,
+    LocalAccountMovements,
+    LocalAccountAdjustments,
+    LocalTransactionRevisions,
+    LocalReceipts,
+    LocalBudgets,
+    LocalBudgetCategories,
+    SyncOutbox,
+  ],
+)
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration {
     return MigrationStrategy(
       onCreate: (Migrator m) async {
         await m.createAll();
+      },
+      onUpgrade: (Migrator m, int from, int to) async {
+        if (from < 2) {
+          for (final table in allTables) {
+            if (table.actualTableName != localSyncState.actualTableName) {
+              await m.createTable(table);
+            }
+          }
+        }
       },
       beforeOpen: (OpeningDetails details) async {
         await customStatement('PRAGMA foreign_keys = ON;');
@@ -42,4 +69,3 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 }
-
