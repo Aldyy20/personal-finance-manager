@@ -1,5 +1,8 @@
 <?php
 
+use App\Exceptions\EntityConflictException;
+use App\Exceptions\FinancialValidationException;
+use App\Exceptions\OwnershipViolationException;
 use App\Support\ApiResponse;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -34,6 +37,38 @@ return Application::configure(basePath: dirname(__DIR__))
                     code: 'VALIDATION_ERROR',
                     status: 422,
                     errors: $e->errors(),
+                );
+            }
+        });
+
+        $exceptions->render(function (FinancialValidationException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return ApiResponse::error(
+                    message: $e->getMessage(),
+                    code: 'VALIDATION_ERROR',
+                    status: 422,
+                    errors: $e->errors,
+                );
+            }
+        });
+
+        $exceptions->render(function (EntityConflictException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return ApiResponse::error(
+                    message: $e->getMessage(),
+                    code: 'CONFLICT',
+                    status: 409,
+                    errors: $e->context,
+                );
+            }
+        });
+
+        $exceptions->render(function (OwnershipViolationException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return ApiResponse::error(
+                    message: $e->getMessage() ?: 'Forbidden',
+                    code: 'FORBIDDEN',
+                    status: 403,
                 );
             }
         });
