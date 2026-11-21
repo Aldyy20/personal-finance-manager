@@ -72,6 +72,17 @@ void main() {
       expect(CurrencyFormatter.formatIdr(0), 'Rp0');
       expect(CurrencyFormatter.formatIdr(1500000), 'Rp1.500.000');
       expect(CurrencyFormatter.formatIdr(-50000), '-Rp50.000');
+      expect(CurrencyFormatter.formatThousands(1500000), '1.500.000');
+
+      const formatter = ThousandsSeparatorInputFormatter();
+      final formatted = formatter.formatEditUpdate(
+        TextEditingValue.empty,
+        const TextEditingValue(
+          text: '1250000',
+          selection: TextSelection.collapsed(offset: 7),
+        ),
+      );
+      expect(formatted.text, '1.250.000');
     });
 
     test('Drift SQLite database initializes, enforces foreign keys, and executes queries', () async {

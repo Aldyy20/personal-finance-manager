@@ -63,6 +63,7 @@ class _AccountDetailSheetState extends ConsumerState<AccountDetailSheet> {
                   initialValue: amountText,
                   onChanged: (v) => amountText = v,
                   keyboardType: TextInputType.number,
+                  inputFormatters: const [ThousandsSeparatorInputFormatter()],
                   style: FinancialTypography.tabular(Theme.of(ctx).textTheme.titleMedium!),
                   decoration: const InputDecoration(
                     labelText: 'Nominal Koreksi (Rp)',

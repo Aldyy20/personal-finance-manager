@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../app/providers.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/theme/design_tokens.dart';
+import '../../../core/utils/currency_formatter.dart';
 
 class AccountFormSheet extends ConsumerStatefulWidget {
   const AccountFormSheet({
@@ -51,7 +52,7 @@ class _AccountFormSheetState extends ConsumerState<AccountFormSheet> {
     _institutionController = TextEditingController(text: acc?.institutionName ?? '');
     _accountNumberController = TextEditingController(text: acc?.accountNumber ?? '');
     _openingBalanceController = TextEditingController(
-      text: acc != null ? acc.openingBalance.toString() : '0',
+      text: acc != null ? CurrencyFormatter.formatThousands(acc.openingBalance) : '0',
     );
   }
 
@@ -200,6 +201,7 @@ class _AccountFormSheetState extends ConsumerState<AccountFormSheet> {
               controller: _openingBalanceController,
               enabled: !isEdit,
               keyboardType: TextInputType.number,
+              inputFormatters: const [ThousandsSeparatorInputFormatter()],
               style: FinancialTypography.tabular(textTheme.titleMedium!),
               decoration: InputDecoration(
                 labelText: 'Saldo Awal (Rp)',

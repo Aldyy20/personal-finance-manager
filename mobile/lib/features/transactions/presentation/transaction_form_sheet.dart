@@ -121,7 +121,9 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
         ? 'TX-${existing.id.replaceAll('-', '').toUpperCase().padRight(9, '0').substring(0, 9)}'
         : _generateRefCode();
     _amountController = TextEditingController(
-      text: existing != null ? existing.amount.toString() : '',
+      text: existing != null
+          ? CurrencyFormatter.formatThousands(existing.amount)
+          : '',
     );
     _descriptionController = TextEditingController(
       text: existing?.description ?? '',
@@ -160,7 +162,7 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
   void _addQuickNominal(int delta) {
     final next = _parsedAmount + delta;
     setState(() {
-      _amountController.text = next.toString();
+      _amountController.text = CurrencyFormatter.formatThousands(next);
     });
   }
 
@@ -170,7 +172,12 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
       if (digits.length <= 1) {
         _amountController.clear();
       } else {
-        _amountController.text = digits.substring(0, digits.length - 1);
+        final remaining = int.tryParse(digits.substring(0, digits.length - 1));
+        if (remaining == null || remaining <= 0) {
+          _amountController.clear();
+        } else {
+          _amountController.text = CurrencyFormatter.formatThousands(remaining);
+        }
       }
     });
   }
@@ -233,7 +240,8 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
         _descriptionController.text = res.result.merchantName!;
       }
       if (res.result.detectedAmount != null && res.result.detectedAmount! > 0) {
-        _amountController.text = res.result.detectedAmount!.toString();
+        _amountController.text =
+            CurrencyFormatter.formatThousands(res.result.detectedAmount!);
       }
       if (res.result.detectedDate != null) {
         _selectedDate = res.result.detectedDate!;
@@ -545,6 +553,7 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
             TextFormField(
               controller: _amountController,
               keyboardType: TextInputType.number,
+              inputFormatters: const [ThousandsSeparatorInputFormatter()],
               onChanged: (_) => setState(() {}),
               style: FinancialTypography.tabular(textTheme.titleLarge!).copyWith(
                 fontWeight: FontWeight.w700,
@@ -552,7 +561,7 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
               decoration: InputDecoration(
                 labelText: 'Nominal (Rp)',
                 prefixText: 'Rp ',
-                hintText: 'Contoh: 50000',
+                hintText: 'Contoh: 50.000',
                 prefixIcon: Icon(
                   Icons.payments_outlined,
                   color: financialColors.brandBlueLight,
@@ -928,22 +937,9 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
             runSpacing: 6,
             children: [
               for (final preset in presets)
-                ActionChip(
-                  onPressed: () => _addQuickNominal(preset.delta),
-                  visualDensity: VisualDensity.compact,
-                  backgroundColor:
-                      const Color(0xFFFFFFFF).withValues(alpha: 0.13),
-                  side: BorderSide(
-                    color: const Color(0xFFFFFFFF).withValues(alpha: 0.24),
-                  ),
-                  label: Text(
-                    preset.label,
-                    style: const TextStyle(
-                      color: Color(0xFFFFFFFF),
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                _HeroQuickAmountPill(
+                  label: preset.label,
+                  onTap: () => _addQuickNominal(preset.delta),
                 ),
             ],
           ),
@@ -1057,14 +1053,12 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
               runSpacing: AppSpacing.xs,
               children: [
                 for (final acc in accounts)
-                  ChoiceChip(
-                    avatar: Icon(accountTypeIcon(acc.accountType), size: 15),
-                    label: Text(
-                      '${acc.name} (${CurrencyFormatter.formatIdr(acc.balanceCache)})',
-                      style: const TextStyle(fontSize: 12),
-                    ),
+                  _AccountChoicePill(
+                    icon: accountTypeIcon(acc.accountType),
+                    label:
+                        '${acc.name} (${CurrencyFormatter.formatIdr(acc.balanceCache)})',
                     selected: _sourceAccountId == acc.id,
-                    onSelected: (_) => setState(() {
+                    onTap: () => setState(() {
                       _sourceAccountId = acc.id;
                       if (_destinationAccountId == acc.id &&
                           accounts.length > 1) {
@@ -1130,14 +1124,12 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
               runSpacing: AppSpacing.xs,
               children: [
                 for (final acc in accounts)
-                  ChoiceChip(
-                    avatar: Icon(accountTypeIcon(acc.accountType), size: 15),
-                    label: Text(
-                      '${acc.name} (${CurrencyFormatter.formatIdr(acc.balanceCache)})',
-                      style: const TextStyle(fontSize: 12),
-                    ),
+                  _AccountChoicePill(
+                    icon: accountTypeIcon(acc.accountType),
+                    label:
+                        '${acc.name} (${CurrencyFormatter.formatIdr(acc.balanceCache)})',
                     selected: _destinationAccountId == acc.id,
-                    onSelected: (_) => setState(() {
+                    onTap: () => setState(() {
                       _destinationAccountId = acc.id;
                       if (_sourceAccountId == acc.id && accounts.length > 1) {
                         _sourceAccountId =
@@ -1254,11 +1246,11 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
             runSpacing: AppSpacing.xs,
             children: [
               for (final acc in accounts)
-                ChoiceChip(
-                  avatar: Icon(accountTypeIcon(acc.accountType), size: 15),
-                  label: Text(acc.name),
+                _AccountChoicePill(
+                  icon: accountTypeIcon(acc.accountType),
+                  label: acc.name,
                   selected: _accountId == acc.id,
-                  onSelected: (_) => setState(() => _accountId = acc.id),
+                  onTap: () => setState(() => _accountId = acc.id),
                 ),
             ],
           ),
@@ -2230,4 +2222,143 @@ String _terbilangWords(int n) {
   }
   return '${_terbilangWords(n ~/ 1000000000000)} triliun ${_terbilangWords(n % 1000000000000)}'
       .trim();
+}
+
+class _HeroQuickAmountPill extends StatelessWidget {
+  const _HeroQuickAmountPill({
+    required this.label,
+    required this.onTap,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFFFFF).withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: const Color(0xFFFFFFFF).withValues(alpha: 0.28),
+            ),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFFFFFFFF),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountChoicePill extends StatelessWidget {
+  const _AccountChoicePill({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final colorScheme = theme.colorScheme;
+    final financialColors = theme.extension<FinancialColors>()!;
+
+    final bgColor = selected
+        ? (isDark
+            ? const Color(0xFF1E60FF).withValues(alpha: 0.24)
+            : colorScheme.secondaryContainer)
+        : (isDark ? const Color(0xFF121B2F) : colorScheme.surface);
+    final borderColor = selected
+        ? financialColors.brandBlueLight
+        : colorScheme.outlineVariant.withValues(alpha: 0.65);
+    final iconBg = selected
+        ? financialColors.brandBlueLight
+        : (isDark
+            ? const Color(0xFF1E2D4D)
+            : colorScheme.surfaceContainerHigh);
+    final iconColor = selected
+        ? const Color(0xFFFFFFFF)
+        : colorScheme.onSurfaceVariant;
+    final labelColor = selected
+        ? (isDark ? const Color(0xFFDBEAFE) : colorScheme.onSecondaryContainer)
+        : colorScheme.onSurface;
+
+    return Material(
+      color: bgColor,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: AppMotion.fast,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: borderColor,
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Icon(icon, size: 14, color: iconColor),
+              ),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                    color: labelColor,
+                  ),
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 16,
+                  color: isDark
+                      ? const Color(0xFF60A5FA)
+                      : financialColors.brandBlueLight,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

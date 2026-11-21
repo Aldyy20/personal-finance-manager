@@ -335,7 +335,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('INDOMARET SUDIRMAN'), findsWidgets);
-        expect(find.text('35000'), findsWidgets);
+        expect(find.text('35.000'), findsWidgets);
 
         final saveBtn = find.text('Simpan Transaksi Pengeluaran');
         await tester.ensureVisible(saveBtn);

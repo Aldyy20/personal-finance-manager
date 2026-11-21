@@ -1859,7 +1859,9 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
       text: b?.name ?? 'Anggaran ${_monthLabel(now)} ${now.year}',
     );
     _totalLimitController = TextEditingController(
-      text: b?.totalLimit != null ? b!.totalLimit.toString() : '',
+      text: b?.totalLimit != null
+          ? CurrencyFormatter.formatThousands(b!.totalLimit!)
+          : '',
     );
     _warningPercentController = TextEditingController(
       text: (b?.warningPercent ?? 80).toString(),
@@ -1870,8 +1872,9 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
     for (final cat in widget.existingCategories) {
       final catId = cat['category_id'] as String;
       final limit = (cat['amount_limit'] as num).toInt();
-      _categoryLimitControllers[catId] =
-          TextEditingController(text: limit.toString());
+      _categoryLimitControllers[catId] = TextEditingController(
+        text: CurrencyFormatter.formatThousands(limit),
+      );
     }
   }
 
@@ -1927,7 +1930,7 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
   void _addTotalLimitDelta(int delta) {
     final next = _parsedTotalLimit + delta;
     setState(() {
-      _totalLimitController.text = next.toString();
+      _totalLimitController.text = CurrencyFormatter.formatThousands(next);
     });
   }
 
@@ -1938,7 +1941,7 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
     );
     if (previous.isEmpty) {
       setState(() {
-        _totalLimitController.text = '10000000';
+        _totalLimitController.text = CurrencyFormatter.formatThousands(10000000);
       });
       return;
     }
@@ -1947,9 +1950,9 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
     final prevCats = (previous['categories'] as List<dynamic>)
         .cast<Map<String, dynamic>>();
     setState(() {
-      _totalLimitController.text =
-          (prevBudget.totalLimit ?? (previous['total_limit'] as num).toInt())
-              .toString();
+      _totalLimitController.text = CurrencyFormatter.formatThousands(
+        prevBudget.totalLimit ?? (previous['total_limit'] as num).toInt(),
+      );
       _warningPercentController.text = prevBudget.warningPercent.toString();
       for (final c in _categoryLimitControllers.values) {
         c.dispose();
@@ -1958,8 +1961,9 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
       for (final item in prevCats) {
         final catId = item['category_id'] as String;
         final amt = (item['amount_limit'] as num).toInt();
-        _categoryLimitControllers[catId] =
-            TextEditingController(text: amt.toString());
+        _categoryLimitControllers[catId] = TextEditingController(
+          text: CurrencyFormatter.formatThousands(amt),
+        );
       }
     });
   }
@@ -2586,13 +2590,16 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
                         TextFormField(
                           controller: _totalLimitController,
                           keyboardType: TextInputType.number,
+                          inputFormatters: const [
+                            ThousandsSeparatorInputFormatter(),
+                          ],
                           onChanged: (_) => setState(() {}),
                           style: FinancialTypography.heroBalance(context)
                               .copyWith(fontSize: 22),
                           decoration: const InputDecoration(
                             labelText: 'Batas Total (Rp, Opsional)',
                             prefixText: 'Rp ',
-                            hintText: 'Contoh: 5000000',
+                            hintText: 'Contoh: 5.000.000',
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -2926,13 +2933,18 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
                                   final rounded = (val / 100000).round() * 100000;
                                   setState(() {
                                     entry.value.text =
-                                        math.max(100000, rounded).toString();
+                                        CurrencyFormatter.formatThousands(
+                                      math.max(100000, rounded),
+                                    );
                                   });
                                 },
                               ),
                               TextFormField(
                                 controller: entry.value,
                                 keyboardType: TextInputType.number,
+                                inputFormatters: const [
+                                  ThousandsSeparatorInputFormatter(),
+                                ],
                                 onChanged: (_) => setState(() {}),
                                 style: FinancialTypography.tabular(
                                   textTheme.bodyLarge!,
@@ -2985,7 +2997,9 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
                               setState(() {
                                 if (selected) {
                                   _categoryLimitControllers[cat.id] =
-                                      TextEditingController(text: '500000');
+                                      TextEditingController(
+                                    text: CurrencyFormatter.formatThousands(500000),
+                                  );
                                 } else {
                                   _categoryLimitControllers
                                       .remove(cat.id)

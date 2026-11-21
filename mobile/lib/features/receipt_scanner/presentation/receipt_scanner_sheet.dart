@@ -159,7 +159,8 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
         _descriptionController.text = result.merchantName!;
       }
       if (result.detectedAmount != null && result.detectedAmount! > 0) {
-        _amountController.text = result.detectedAmount!.toString();
+        _amountController.text =
+            CurrencyFormatter.formatThousands(result.detectedAmount!);
       }
       if (result.detectedDate != null) {
         _selectedDate = result.detectedDate!;
@@ -278,11 +279,12 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
             TextFormField(
               initialValue: itemPrice,
               keyboardType: TextInputType.number,
+              inputFormatters: const [ThousandsSeparatorInputFormatter()],
               onChanged: (v) => itemPrice = v,
               decoration: const InputDecoration(
                 labelText: 'Harga (Rp)',
                 prefixText: 'Rp ',
-                hintText: 'Contoh: 18000',
+                hintText: 'Contoh: 18.000',
               ),
             ),
           ],
@@ -1556,6 +1558,9 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                   TextFormField(
                     controller: _amountController,
                     keyboardType: TextInputType.number,
+                    inputFormatters: const [
+                      ThousandsSeparatorInputFormatter(),
+                    ],
                     onChanged: (_) => setState(() {}),
                     style: FinancialTypography.heroBalance(context).copyWith(
                       fontSize: 24,
