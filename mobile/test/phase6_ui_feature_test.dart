@@ -114,6 +114,32 @@ void main() {
       expect(decimalComma.merchantName, 'APOTEK SEHAT');
       expect(decimalComma.detectedAmount, 125000);
       expect(decimalComma.detectedDate, DateTime(2026, 11, 19));
+      expect(
+        parser.recommendCategoryKeyword(
+          decimalComma.rawText,
+          decimalComma.merchantName,
+        ),
+        'kesehatan',
+      );
+
+      final splitTotalReceipt = parser.parseReceiptText(
+        'WARUNG KOPI NUSANTARA\n'
+        '21 Nov 2026\n'
+        'Kopi Tubruk  15.000\n'
+        'Pisang Bakar  30.000\n'
+        'TOTAL BAYAR\n'
+        'Rp 45.000',
+      );
+      expect(splitTotalReceipt.merchantName, 'WARUNG KOPI NUSANTARA');
+      expect(splitTotalReceipt.detectedAmount, 45000);
+      expect(splitTotalReceipt.detectedDate, DateTime(2026, 11, 21));
+      expect(
+        parser.recommendCategoryKeyword(
+          splitTotalReceipt.rawText,
+          splitTotalReceipt.merchantName,
+        ),
+        'makan',
+      );
     });
 
     testWidgets(

@@ -19,3 +19,11 @@
 # Optional Flutter deferred components Play Core classes
 -dontwarn com.google.android.play.core.**
 
+# Keep Google ML Kit Text Recognition classes & silence optional script warnings
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.mlkit.vision.text.chinese.**
+-dontwarn com.google.mlkit.vision.text.devanagari.**
+-dontwarn com.google.mlkit.vision.text.japanese.**
+-dontwarn com.google.mlkit.vision.text.korean.**
+

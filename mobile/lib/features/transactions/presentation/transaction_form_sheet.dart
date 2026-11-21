@@ -12,6 +12,7 @@ import '../../../core/theme/design_tokens.dart';
 import '../../../core/theme/financial_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/finance_widgets.dart';
+import '../../receipt_scanner/application/ocr_parser_service.dart';
 import '../../receipt_scanner/presentation/receipt_scanner_sheet.dart';
 
 class TransactionFormSheet extends ConsumerStatefulWidget {
@@ -246,6 +247,22 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
       if (res.result.detectedDate != null) {
         _selectedDate = res.result.detectedDate!;
       }
+      if (widget.existingTransaction == null) {
+        final keyword = const OcrParserService().recommendCategoryKeyword(
+          res.rawText,
+          res.result.merchantName,
+        );
+        if (keyword != null) {
+          final cats =
+              ref.read(categoriesStreamProvider).valueOrNull ?? const <LocalCategory>[];
+          for (final c in cats.where((c) => c.type == _type && c.isActive)) {
+            if (c.name.toLowerCase().contains(keyword)) {
+              _categoryId = c.id;
+              break;
+            }
+          }
+        }
+      }
     });
   }
 
@@ -321,15 +338,17 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
 
           if (_pendingOcrReceipt != null) {
             final ocr = _pendingOcrReceipt!;
+            final resolvedPath =
+                ocr.localImagePath ?? 'local_receipts/${ocr.fileName}';
             await ref.read(receiptRepositoryProvider).saveReceiptWithOcr(
                   userId: session.userId,
                   deviceId: session.deviceId,
                   transactionId: created.id,
-                  filePath: 'local_receipts/${ocr.fileName}',
-                  localFilePath: 'local_receipts/${ocr.fileName}',
+                  filePath: resolvedPath,
+                  localFilePath: resolvedPath,
                   fileName: ocr.fileName,
                   mimeType: 'image/jpeg',
-                  fileSize: utf8.encode(ocr.rawText).length,
+                  fileSize: ocr.fileSize ?? utf8.encode(ocr.rawText).length,
                   ocrText: ocr.rawText,
                   extractedData: ocr.result.toJson(),
                 );

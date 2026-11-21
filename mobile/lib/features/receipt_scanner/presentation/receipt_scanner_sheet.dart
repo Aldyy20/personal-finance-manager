@@ -1,8 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/database/app_database.dart';
@@ -18,11 +24,15 @@ class ReceiptScanFormResult {
     required this.result,
     required this.rawText,
     required this.fileName,
+    this.localImagePath,
+    this.fileSize,
   });
 
   final OcrExtractionResult result;
   final String rawText;
   final String fileName;
+  final String? localImagePath;
+  final int? fileSize;
 }
 
 class ReceiptScannerScreen extends StatelessWidget {
@@ -115,12 +125,16 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
   final _fileNameController = TextEditingController(text: 'struk_kamera.jpg');
   final _descriptionController = TextEditingController();
   final _amountController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
 
   OcrExtractionResult? _extraction;
   List<String> _editableLineItems = [];
   DateTime _selectedDate = DateTime.now();
   String? _selectedAccountId;
   String? _selectedCategoryId;
+  String? _capturedImagePath;
+  int? _capturedFileSize;
+  bool _isScanningImage = false;
   bool _showRawInputEditor = false;
   bool _showCategoryChoices = false;
   bool _saving = false;
@@ -143,14 +157,193 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
   }
 
   void _applySample(({String title, String fileName, String rawText}) sample) {
+    _capturedImagePath = null;
+    _capturedFileSize = null;
     _fileNameController.text = sample.fileName;
     _rawTextController.text = sample.rawText;
     _runOcrParse();
   }
 
+  Future<void> _pickAndScanImage(ImageSource source) async {
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 88,
+        maxWidth: 2200,
+        maxHeight: 2200,
+      );
+      if (picked == null || !mounted) return;
+
+      setState(() {
+        _isScanningImage = true;
+        _errorMessage = null;
+      });
+
+      final docsDir = await getApplicationDocumentsDirectory();
+      final receiptsDir = Directory(p.join(docsDir.path, 'local_receipts'));
+      if (!await receiptsDir.exists()) {
+        await receiptsDir.create(recursive: true);
+      }
+
+      final fileName =
+          'struk_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final destFile = File(p.join(receiptsDir.path, fileName));
+      final bytes = await picked.readAsBytes();
+      await destFile.writeAsBytes(bytes, flush: true);
+
+      final recognizedText = await _recognizeTextFromImageFile(destFile);
+      if (!mounted) return;
+
+      _capturedImagePath = destFile.path;
+      _capturedFileSize = bytes.length;
+      _fileNameController.text = fileName;
+      _rawTextController.text = recognizedText;
+
+      if (recognizedText.trim().isEmpty) {
+        setState(() {
+          _extraction = null;
+          _editableLineItems = [];
+          _showRawInputEditor = true;
+          _errorMessage =
+              'Teks pada foto struk belum terbaca. Coba foto ulang dengan pencahayaan lebih terang atau ketik teks manual.';
+        });
+        return;
+      }
+
+      _runOcrParse();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Gagal memindai foto struk: $e';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isScanningImage = false);
+      }
+    }
+  }
+
+  Future<String> _recognizeTextFromImageFile(File imageFile) async {
+    final inputImage = InputImage.fromFilePath(imageFile.path);
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    try {
+      final recognized = await recognizer.processImage(inputImage);
+      final lines = <TextLine>[];
+      for (final block in recognized.blocks) {
+        lines.addAll(block.lines);
+      }
+      if (lines.isEmpty) {
+        return recognized.text.trim();
+      }
+
+      // Group adjacent bounding boxes into horizontal receipt rows so two-column
+      // layouts ("Item Name" on left + "Price" on right) stay on the same line.
+      lines.sort(
+        (a, b) => a.boundingBox.center.dy.compareTo(b.boundingBox.center.dy),
+      );
+
+      final rows = <List<TextLine>>[];
+      for (final line in lines) {
+        final lineHeight = line.boundingBox.height;
+        final threshold = math.max(14.0, lineHeight * 0.55);
+        if (rows.isEmpty) {
+          rows.add([line]);
+          continue;
+        }
+        final lastRow = rows.last;
+        final avgY = lastRow
+                .map((e) => e.boundingBox.center.dy)
+                .reduce((a, b) => a + b) /
+            lastRow.length;
+        if ((line.boundingBox.center.dy - avgY).abs() <= threshold) {
+          lastRow.add(line);
+        } else {
+          rows.add([line]);
+        }
+      }
+
+      final reconstructedLines = <String>[];
+      for (final row in rows) {
+        row.sort((a, b) => a.boundingBox.left.compareTo(b.boundingBox.left));
+        final joined = row
+            .map((l) => l.text.trim())
+            .where((t) => t.isNotEmpty)
+            .join('  ');
+        if (joined.isNotEmpty) {
+          reconstructedLines.add(joined);
+        }
+      }
+      return reconstructedLines.join('\n').trim();
+    } finally {
+      await recognizer.close();
+    }
+  }
+
+  void _autoSelectRecommendedCategory(String rawText, String? merchant) {
+    final keyword = ref
+        .read(ocrParserServiceProvider)
+        .recommendCategoryKeyword(rawText, merchant);
+    if (keyword == null) return;
+    final categories =
+        ref.read(categoriesStreamProvider).valueOrNull ?? const <LocalCategory>[];
+    final activeExpense =
+        categories.where((c) => c.type == 'expense' && c.isActive).toList();
+    for (final cat in activeExpense) {
+      if (cat.name.toLowerCase().contains(keyword)) {
+        _selectedCategoryId = cat.id;
+        break;
+      }
+    }
+  }
+
+  Future<void> _showSourceActionSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: AppSpacing.sm),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_rounded),
+              title: const Text('Ambil Foto dari Kamera'),
+              subtitle: const Text('Foto struk fisik langsung dengan kamera'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _pickAndScanImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Pilih Gambar dari Galeri'),
+              subtitle: const Text('Muat foto atau screenshot struk belanja'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _pickAndScanImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note_rounded),
+              title: const Text('Edit Teks Hasil OCR Manual'),
+              subtitle: const Text('Tampilkan/sembunyikan editor teks mentah'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                setState(() => _showRawInputEditor = !_showRawInputEditor);
+              },
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _runOcrParse() {
     final parser = ref.read(ocrParserServiceProvider);
-    final result = parser.parseReceiptText(_rawTextController.text);
+    final rawText = _rawTextController.text;
+    final result = parser.parseReceiptText(rawText);
     setState(() {
       _extraction = result;
       _editableLineItems = List<String>.from(result.lineItems);
@@ -165,6 +358,7 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
       if (result.detectedDate != null) {
         _selectedDate = result.detectedDate!;
       }
+      _autoSelectRecommendedCategory(rawText, result.merchantName);
     });
   }
 
@@ -189,6 +383,8 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
   }
 
   Future<void> _showInspectRawDialog() async {
+    final hasPhoto = _capturedImagePath != null &&
+        File(_capturedImagePath!).existsSync();
     await showDialog<void>(
       context: context,
       builder: (ctx) {
@@ -201,6 +397,24 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (hasPhoto) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  child: Container(
+                    height: 220,
+                    color: colorScheme.surfaceContainerHighest,
+                    child: InteractiveViewer(
+                      minScale: 1.0,
+                      maxScale: 4.0,
+                      child: Image.file(
+                        File(_capturedImagePath!),
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
               Container(
                 padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
@@ -210,7 +424,7 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                 ),
                 child: SelectableText(
                   _rawTextController.text.trim().isEmpty
-                      ? 'Belum ada teks struk dipindai. Pilih contoh struk atau ketik teks nota di bawah.'
+                      ? 'Belum ada teks struk dipindai. Ambil foto struk, pilih galeri, atau ketik teks nota di bawah.'
                       : _rawTextController.text.trim(),
                   style: FinancialTypography.tabular(textTheme.bodySmall!),
                 ),
@@ -342,6 +556,8 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
           fileName: _fileNameController.text.trim().isEmpty
               ? 'struk_ocr.jpg'
               : _fileNameController.text.trim(),
+          localImagePath: _capturedImagePath,
+          fileSize: _capturedFileSize,
         ),
       );
       return;
@@ -375,6 +591,8 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
       final fileName = _fileNameController.text.trim().isEmpty
           ? 'struk_ocr.jpg'
           : _fileNameController.text.trim();
+      final resolvedFilePath =
+          _capturedImagePath ?? 'local_receipts/$fileName';
 
       final tx = await txRepo.createIncomeOrExpense(
         userId: session.userId,
@@ -400,11 +618,11 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
         userId: session.userId,
         deviceId: session.deviceId,
         transactionId: tx.id,
-        filePath: 'local_receipts/$fileName',
-        localFilePath: 'local_receipts/$fileName',
+        filePath: resolvedFilePath,
+        localFilePath: resolvedFilePath,
         fileName: fileName,
         mimeType: 'image/jpeg',
-        fileSize: utf8.encode(rawText).length,
+        fileSize: _capturedFileSize ?? utf8.encode(rawText).length,
         ocrText: rawText,
         extractedData: extracted,
       );
@@ -437,9 +655,10 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
     final session = ref.read(activeSessionProvider).valueOrNull;
     if (session == null) return;
     final rawText = _rawTextController.text.trim();
-    if (rawText.isEmpty) {
+    if (rawText.isEmpty && _capturedImagePath == null) {
       setState(
-        () => _errorMessage = 'Masukkan atau pilih teks struk terlebih dahulu.',
+        () => _errorMessage =
+            'Foto struk atau masukkan teks struk terlebih dahulu.',
       );
       return;
     }
@@ -454,6 +673,8 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
       final fileName = _fileNameController.text.trim().isEmpty
           ? 'struk_ocr.jpg'
           : _fileNameController.text.trim();
+      final resolvedFilePath =
+          _capturedImagePath ?? 'local_receipts/$fileName';
       final extracted = {
         'merchant_name': _descriptionController.text.trim(),
         'detected_amount': _parsedAmount,
@@ -465,11 +686,11 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
         userId: session.userId,
         deviceId: session.deviceId,
         transactionId: widget.attachToTransactionId!,
-        filePath: 'local_receipts/$fileName',
-        localFilePath: 'local_receipts/$fileName',
+        filePath: resolvedFilePath,
+        localFilePath: resolvedFilePath,
         fileName: fileName,
         mimeType: 'image/jpeg',
-        fileSize: utf8.encode(rawText).length,
+        fileSize: _capturedFileSize ?? utf8.encode(rawText).length,
         ocrText: rawText,
         extractedData: extracted,
       );
@@ -622,8 +843,7 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                     : colorScheme.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(999),
                 child: InkWell(
-                  onTap: () =>
-                      setState(() => _showRawInputEditor = !_showRawInputEditor),
+                  onTap: _isScanningImage ? null : _showSourceActionSheet,
                   borderRadius: BorderRadius.circular(999),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -754,7 +974,80 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
           ),
           const SizedBox(height: AppSpacing.sm),
 
-          // Preset Sample Struk Bar (Offline Camera Simulation Sources)
+          // Real On-Device Camera & Gallery OCR Action Bar
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _isScanningImage
+                      ? null
+                      : () => _pickAndScanImage(ImageSource.camera),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                    backgroundColor: financialColors.brandBlueLight,
+                    foregroundColor: const Color(0xFFFFFFFF),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.photo_camera_rounded, size: 18),
+                  label: const Text(
+                    'Foto Kamera',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isScanningImage
+                      ? null
+                      : () => _pickAndScanImage(ImageSource.gallery),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.photo_library_rounded, size: 18),
+                  label: const Text(
+                    'Pilih Galeri',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_isScanningImage) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: surfaceCardLowBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: borderSideColor),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Memindai gambar struk dengan Google ML Kit On-Device...',
+                    style: textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: isDark
+                          ? const Color(0xFF60A5FA)
+                          : financialColors.brandBlueLight,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const LinearProgressIndicator(),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.sm),
+
+          // Preset Sample Struk Bar (Quick Offline Test Presets)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -839,7 +1132,20 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                   borderRadius: 0,
                   child: Stack(
                     children: [
-                      if (_rawTextController.text.trim().isNotEmpty)
+                      if (_capturedImagePath != null &&
+                          File(_capturedImagePath!).existsSync())
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Opacity(
+                              opacity: 0.34,
+                              child: Image.file(
+                                File(_capturedImagePath!),
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (_rawTextController.text.trim().isNotEmpty)
                         Positioned.fill(
                           child: IgnorePointer(
                             child: Opacity(
