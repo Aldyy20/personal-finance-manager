@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Requests\Api\V1\Receipt\ScanReceiptAiRequest;
 use App\Http\Requests\Api\V1\Receipt\UploadReceiptRequest;
 use App\Http\Resources\Api\V1\ReceiptResource;
+use App\Services\AiReceiptScannerService;
 use App\Services\ReceiptService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,7 +17,23 @@ class ReceiptController extends ApiController
 {
     public function __construct(
         private readonly ReceiptService $receiptService,
+        private readonly AiReceiptScannerService $aiReceiptScannerService,
     ) {}
+
+    public function scanAi(ScanReceiptAiRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+        $result = $this->aiReceiptScannerService->scanReceipt(
+            $request->file('file'),
+            is_array($validated['categories'] ?? null) ? $validated['categories'] : [],
+        );
+
+        return $this->success(
+            data: $result,
+            message: 'Receipt analyzed with AI Vision',
+            status: 200,
+        );
+    }
 
     public function store(UploadReceiptRequest $request): JsonResponse
     {

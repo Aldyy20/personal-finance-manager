@@ -18,6 +18,7 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/finance_widgets.dart';
 import '../application/ocr_parser_service.dart';
 import '../domain/ocr_extraction_result.dart';
+import 'ai_vision_keys_dialog.dart';
 
 class ReceiptScanFormResult {
   const ReceiptScanFormResult({
@@ -139,6 +140,32 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
   bool _showCategoryChoices = false;
   bool _saving = false;
   String? _errorMessage;
+  String? _scanStatusMessage;
+  bool _hasGeminiKey = false;
+  bool _hasGroqKey = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshAiKeyStatus();
+  }
+
+  Future<void> _refreshAiKeyStatus() async {
+    final status =
+        await ref.read(aiReceiptVisionServiceProvider).getConfiguredKeyStatus();
+    if (!mounted) return;
+    setState(() {
+      _hasGeminiKey = status.hasGeminiKey;
+      _hasGroqKey = status.hasGroqKey;
+    });
+  }
+
+  Future<void> _openConfigureAiKeysDialog() async {
+    final updated = await showConfigureAiVisionKeysDialog(context, ref);
+    if (updated) {
+      await _refreshAiKeyStatus();
+    }
+  }
 
   @override
   void dispose() {
@@ -159,6 +186,7 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
   void _applySample(({String title, String fileName, String rawText}) sample) {
     _capturedImagePath = null;
     _capturedFileSize = null;
+    _scanStatusMessage = null;
     _fileNameController.text = sample.fileName;
     _rawTextController.text = sample.rawText;
     _runOcrParse();
@@ -168,15 +196,16 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
     try {
       final picked = await _imagePicker.pickImage(
         source: source,
-        imageQuality: 88,
-        maxWidth: 2200,
-        maxHeight: 2200,
+        imageQuality: 85,
+        maxWidth: 1600,
+        maxHeight: 1600,
       );
       if (picked == null || !mounted) return;
 
       setState(() {
         _isScanningImage = true;
         _errorMessage = null;
+        _scanStatusMessage = null;
       });
 
       final docsDir = await getApplicationDocumentsDirectory();
@@ -191,12 +220,42 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
       final bytes = await picked.readAsBytes();
       await destFile.writeAsBytes(bytes, flush: true);
 
-      final recognizedText = await _recognizeTextFromImageFile(destFile);
       if (!mounted) return;
-
       _capturedImagePath = destFile.path;
       _capturedFileSize = bytes.length;
       _fileNameController.text = fileName;
+
+      // 1. Primary path: Free AI Vision (Gemini -> Groq automatic fallback / Server AI)
+      final session = ref.read(activeSessionProvider).valueOrNull;
+      final categories =
+          ref.read(categoriesStreamProvider).valueOrNull ?? const <LocalCategory>[];
+      final expenseCategoryNames = categories
+          .where((c) => c.type == 'expense' && c.isActive)
+          .map((c) => c.name)
+          .toList();
+
+      final aiOutcome = await ref
+          .read(aiReceiptVisionServiceProvider)
+          .scanReceiptImage(
+            imageFile: destFile,
+            categoryNames: expenseCategoryNames,
+            isCloudAuthenticated: session?.isCloudAuthenticated ?? false,
+          );
+      if (!mounted) return;
+
+      if (aiOutcome.hasExtraction) {
+        final aiResult = aiOutcome.result!;
+        _rawTextController.text = aiResult.rawText;
+        _applyExtractionResult(
+          aiResult,
+          statusNote: aiOutcome.diagnosticMessage,
+        );
+        return;
+      }
+
+      // 2. Offline fallback: Google ML Kit on-device text recognition
+      final recognizedText = await _recognizeTextFromImageFile(destFile);
+      if (!mounted) return;
       _rawTextController.text = recognizedText;
 
       if (recognizedText.trim().isEmpty) {
@@ -204,13 +263,15 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
           _extraction = null;
           _editableLineItems = [];
           _showRawInputEditor = true;
-          _errorMessage =
-              'Teks pada foto struk belum terbaca. Coba foto ulang dengan pencahayaan lebih terang atau ketik teks manual.';
+          _scanStatusMessage = aiOutcome.diagnosticMessage;
+          _errorMessage = aiOutcome.diagnosticMessage != null
+              ? '${aiOutcome.diagnosticMessage} Teks struk juga belum terbaca oleh OCR offline.'
+              : 'Teks pada foto struk belum terbaca. Coba foto ulang dengan pencahayaan lebih terang atau ketik teks manual.';
         });
         return;
       }
 
-      _runOcrParse();
+      _runOcrParse(statusNote: aiOutcome.diagnosticMessage);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -280,15 +341,37 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
     }
   }
 
-  void _autoSelectRecommendedCategory(String rawText, String? merchant) {
-    final keyword = ref
-        .read(ocrParserServiceProvider)
-        .recommendCategoryKeyword(rawText, merchant);
-    if (keyword == null) return;
+  void _autoSelectRecommendedCategory(
+    String rawText,
+    String? merchant, {
+    String? aiSuggestedCategory,
+  }) {
     final categories =
         ref.read(categoriesStreamProvider).valueOrNull ?? const <LocalCategory>[];
     final activeExpense =
         categories.where((c) => c.type == 'expense' && c.isActive).toList();
+
+    final suggested = aiSuggestedCategory?.trim().toLowerCase();
+    if (suggested != null && suggested.isNotEmpty) {
+      for (final cat in activeExpense) {
+        if (cat.name.toLowerCase() == suggested) {
+          _selectedCategoryId = cat.id;
+          return;
+        }
+      }
+      for (final cat in activeExpense) {
+        final catLower = cat.name.toLowerCase();
+        if (catLower.contains(suggested) || suggested.contains(catLower)) {
+          _selectedCategoryId = cat.id;
+          return;
+        }
+      }
+    }
+
+    final keyword = ref
+        .read(ocrParserServiceProvider)
+        .recommendCategoryKeyword(rawText, merchant);
+    if (keyword == null) return;
     for (final cat in activeExpense) {
       if (cat.name.toLowerCase().contains(keyword)) {
         _selectedCategoryId = cat.id;
@@ -309,7 +392,7 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
             ListTile(
               leading: const Icon(Icons.photo_camera_rounded),
               title: const Text('Ambil Foto dari Kamera'),
-              subtitle: const Text('Foto struk fisik langsung dengan kamera'),
+              subtitle: const Text('Pindai struk langsung dengan AI Vision'),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _pickAndScanImage(ImageSource.camera);
@@ -322,6 +405,15 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
               onTap: () {
                 Navigator.of(ctx).pop();
                 _pickAndScanImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_outlined),
+              title: const Text('Atur AI Key (Gemini + Groq)'),
+              subtitle: const Text('Konfigurasi API key gratis AI Vision'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _openConfigureAiKeysDialog();
               },
             ),
             ListTile(
@@ -340,14 +432,15 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
     );
   }
 
-  void _runOcrParse() {
-    final parser = ref.read(ocrParserServiceProvider);
-    final rawText = _rawTextController.text;
-    final result = parser.parseReceiptText(rawText);
+  void _applyExtractionResult(
+    OcrExtractionResult result, {
+    String? statusNote,
+  }) {
     setState(() {
       _extraction = result;
       _editableLineItems = List<String>.from(result.lineItems);
       _errorMessage = null;
+      _scanStatusMessage = statusNote;
       if (result.merchantName != null && result.merchantName!.isNotEmpty) {
         _descriptionController.text = result.merchantName!;
       }
@@ -358,8 +451,28 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
       if (result.detectedDate != null) {
         _selectedDate = result.detectedDate!;
       }
-      _autoSelectRecommendedCategory(rawText, result.merchantName);
+      _autoSelectRecommendedCategory(
+        result.rawText,
+        result.merchantName,
+        aiSuggestedCategory: result.suggestedCategory,
+      );
     });
+  }
+
+  void _runOcrParse({String? statusNote}) {
+    final parser = ref.read(ocrParserServiceProvider);
+    final rawText = _rawTextController.text;
+    final parsed = parser.parseReceiptText(rawText);
+    final result = OcrExtractionResult(
+      rawText: parsed.rawText,
+      merchantName: parsed.merchantName,
+      detectedAmount: parsed.detectedAmount,
+      detectedDate: parsed.detectedDate,
+      lineItems: parsed.lineItems,
+      providerLabel: 'OCR Offline ML Kit',
+      fallbackUsed: false,
+    );
+    _applyExtractionResult(result, statusNote: statusNote);
   }
 
   Future<void> _pickDate() async {
@@ -548,6 +661,9 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
         detectedAmount: parsedAmount ?? _extraction?.detectedAmount,
         detectedDate: _selectedDate,
         lineItems: _editableLineItems,
+        suggestedCategory: _extraction?.suggestedCategory,
+        providerLabel: _extraction?.providerLabel,
+        fallbackUsed: _extraction?.fallbackUsed ?? false,
       );
       Navigator.of(context).pop(
         ReceiptScanFormResult(
@@ -611,6 +727,11 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
         'detected_amount': amount,
         'detected_date': _selectedDate.toIso8601String(),
         'line_items': _editableLineItems,
+        if (_extraction?.suggestedCategory != null)
+          'suggested_category': _extraction!.suggestedCategory,
+        if (_extraction?.providerLabel != null)
+          'provider_label': _extraction!.providerLabel,
+        'fallback_used': _extraction?.fallbackUsed ?? false,
       };
       final rawText = _rawTextController.text.trim();
 
@@ -891,7 +1012,7 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
           ),
           const SizedBox(height: AppSpacing.md),
 
-          // 2. Status Chip: OCR Google ML Kit (100% Offline)
+          // 2. Status Chip: AI Vision (Gemini Utama + Groq Fallback + OCR Offline)
           Container(
             padding: const EdgeInsets.all(13),
             decoration: BoxDecoration(
@@ -906,14 +1027,26 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                   height: 34,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: financialColors.brandBlueLight.withValues(alpha: 0.16),
+                    color: (_extraction?.fallbackUsed == true
+                            ? financialColors.warning
+                            : financialColors.brandBlueLight)
+                        .withValues(alpha: 0.16),
                   ),
                   child: Icon(
-                    Icons.offline_bolt_rounded,
+                    _extraction?.providerLabel != null &&
+                            !_extraction!.providerLabel!
+                                .toLowerCase()
+                                .contains('offline')
+                        ? Icons.auto_awesome_rounded
+                        : (_hasGeminiKey || _hasGroqKey
+                            ? Icons.auto_awesome_outlined
+                            : Icons.document_scanner_outlined),
                     size: 19,
-                    color: isDark
-                        ? const Color(0xFF60A5FA)
-                        : financialColors.brandBlueLight,
+                    color: _extraction?.fallbackUsed == true
+                        ? financialColors.warning
+                        : (isDark
+                            ? const Color(0xFF60A5FA)
+                            : financialColors.brandBlueLight),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -927,7 +1060,8 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Text(
-                            'OCR Google ML Kit',
+                            _extraction?.providerLabel ??
+                                'AI Vision • Gemini + Groq',
                             style: textTheme.labelLarge?.copyWith(
                               fontWeight: FontWeight.w700,
                             ),
@@ -938,12 +1072,25 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: financialColors.brandBlueLight,
+                              color: _extraction?.fallbackUsed == true
+                                  ? financialColors.warning
+                                  : financialColors.brandBlueLight,
                               borderRadius: BorderRadius.circular(5),
                             ),
-                            child: const Text(
-                              '100% Offline',
-                              style: TextStyle(
+                            child: Text(
+                              _extraction != null
+                                  ? (_extraction!.fallbackUsed
+                                      ? 'Fallback Aktif'
+                                      : (_extraction!.providerLabel
+                                                  ?.toLowerCase()
+                                                  .contains('offline') ==
+                                              true
+                                          ? 'Offline'
+                                          : 'AI Vision'))
+                                  : ((_hasGeminiKey || _hasGroqKey)
+                                      ? 'Siap Scan'
+                                      : 'Gratis'),
+                              style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFFFFFFFF),
@@ -954,7 +1101,13 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Data diproses lokal tanpa kirim data ke cloud',
+                        _hasGeminiKey && _hasGroqKey
+                            ? 'Gemini 2.5 Flash utama • Groq Llama 4 fallback otomatis'
+                            : (_hasGeminiKey
+                                ? 'Gemini 2.5 Flash aktif (tambahkan Groq untuk fallback)'
+                                : (_hasGroqKey
+                                    ? 'Groq Vision aktif (tambahkan Gemini sebagai utama)'
+                                    : 'Atur API Key gratis Gemini & Groq atau pakai Server/OCR Offline')),
                         style: textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
@@ -962,19 +1115,33 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                     ],
                   ),
                 ),
-                Icon(
-                  Icons.verified_user_rounded,
-                  size: 20,
-                  color: isDark
-                      ? const Color(0xFF60A5FA)
-                      : financialColors.brandBlueLight,
+                const SizedBox(width: 4),
+                TextButton.icon(
+                  onPressed:
+                      _isScanningImage ? null : _openConfigureAiKeysDialog,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: const Icon(Icons.key_rounded, size: 16),
+                  label: Text(
+                    (_hasGeminiKey || _hasGroqKey) ? 'Key' : 'Atur Key',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
 
-          // Real On-Device Camera & Gallery OCR Action Bar
+          // Camera & Gallery AI Vision + Offline OCR Action Bar
           Row(
             children: [
               Expanded(
@@ -1031,7 +1198,7 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    'Memindai gambar struk dengan Google ML Kit On-Device...',
+                    'Menganalisis struk dengan AI Vision (Gemini → Groq Fallback)...',
                     style: textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: isDark
@@ -1041,6 +1208,37 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                   ),
                   const SizedBox(height: 8),
                   const LinearProgressIndicator(),
+                ],
+              ),
+            ),
+          ],
+          if (_scanStatusMessage != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: financialColors.warning.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: financialColors.warning.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 18,
+                    color: financialColors.warning,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _scanStatusMessage!,
+                      style: textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),

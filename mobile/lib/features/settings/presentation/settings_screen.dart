@@ -10,6 +10,7 @@ import '../../../core/theme/design_tokens.dart';
 import '../../../core/theme/financial_colors.dart';
 import '../../../core/widgets/finance_widgets.dart';
 import '../../authentication/application/session_controller.dart';
+import '../../receipt_scanner/presentation/ai_vision_keys_dialog.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -500,11 +501,13 @@ class SettingsScreen extends ConsumerWidget {
                     leading: const Icon(Icons.document_scanner_outlined),
                     title: const Text('Pemindai Struk OCR'),
                     subtitle: const Text(
-                      'Ekstrak teks struk menjadi transaksi pengeluaran',
+                      'Ekstrak foto struk dengan AI Vision & OCR ke transaksi',
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => context.push('/receipt-scanner'),
                   ),
+                  const Divider(),
+                  const _AiVisionSettingsTile(),
                 ],
               ),
             ),
@@ -756,6 +759,56 @@ class _OutboxRow extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
       ),
+    );
+  }
+}
+
+class _AiVisionSettingsTile extends ConsumerStatefulWidget {
+  const _AiVisionSettingsTile();
+
+  @override
+  ConsumerState<_AiVisionSettingsTile> createState() =>
+      _AiVisionSettingsTileState();
+}
+
+class _AiVisionSettingsTileState extends ConsumerState<_AiVisionSettingsTile> {
+  late Future<({bool hasGeminiKey, bool hasGroqKey})> _statusFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatus();
+  }
+
+  void _loadStatus() {
+    _statusFuture =
+        ref.read(aiReceiptVisionServiceProvider).getConfiguredKeyStatus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<({bool hasGeminiKey, bool hasGroqKey})>(
+      future: _statusFuture,
+      builder: (context, snapshot) {
+        final hasGemini = snapshot.data?.hasGeminiKey ?? false;
+        final hasGroq = snapshot.data?.hasGroqKey ?? false;
+        final subtitle = (hasGemini || hasGroq)
+            ? 'Gemini: ${hasGemini ? 'Aktif' : 'Belum'} • Groq Fallback: ${hasGroq ? 'Aktif' : 'Belum'}'
+            : 'Atur API Key gratis Google AI Studio & Groq';
+
+        return ListTile(
+          leading: const Icon(Icons.auto_awesome_outlined),
+          title: const Text('AI Vision Struk (Gemini + Groq)'),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.key_rounded),
+          onTap: () async {
+            final updated = await showConfigureAiVisionKeysDialog(context, ref);
+            if (updated && mounted) {
+              setState(_loadStatus);
+            }
+          },
+        );
+      },
     );
   }
 }

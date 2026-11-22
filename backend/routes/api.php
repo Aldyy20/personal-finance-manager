@@ -82,6 +82,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/transfers/{id}/void', [TransferController::class, 'void'])->name('api.v1.transfers.void');
 
         // Receipts
+        Route::post('/receipts/scan-ai', [ReceiptController::class, 'scanAi'])
+            ->middleware('throttle:20,1')
+            ->name('api.v1.receipts.scan-ai');
         Route::post('/receipts', [ReceiptController::class, 'store'])->name('api.v1.receipts.store');
         Route::get('/receipts/{id}', [ReceiptController::class, 'show'])->name('api.v1.receipts.show');
         Route::get('/receipts/{id}/download', [ReceiptController::class, 'download'])->name('api.v1.receipts.download');

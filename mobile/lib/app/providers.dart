@@ -14,6 +14,7 @@ import '../features/authentication/application/session_controller.dart';
 import '../features/authentication/data/auth_repository.dart';
 import '../features/budgets/data/budget_repository.dart';
 import '../features/categories/data/category_repository.dart';
+import '../features/receipt_scanner/application/ai_receipt_vision_service.dart';
 import '../features/receipt_scanner/application/ocr_parser_service.dart';
 import '../features/receipt_scanner/data/receipt_repository.dart';
 import '../features/reports/data/report_repository.dart';
@@ -97,6 +98,14 @@ final reportRepositoryProvider = Provider<ReportRepository>((ref) {
 
 final ocrParserServiceProvider = Provider<OcrParserService>((ref) {
   return const OcrParserService();
+});
+
+final aiReceiptVisionServiceProvider = Provider<AiReceiptVisionService>((ref) {
+  return AiReceiptVisionService(
+    envConfig: ref.watch(envConfigProvider),
+    secureStorage: ref.watch(secureStorageServiceProvider),
+    apiClient: ref.watch(apiClientProvider),
+  );
 });
 
 final receiptRepositoryProvider = Provider<ReceiptRepository>((ref) {

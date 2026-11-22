@@ -5,6 +5,9 @@ class OcrExtractionResult {
     this.detectedAmount,
     this.detectedDate,
     this.lineItems = const [],
+    this.suggestedCategory,
+    this.providerLabel,
+    this.fallbackUsed = false,
   });
 
   final String rawText;
@@ -12,6 +15,9 @@ class OcrExtractionResult {
   final int? detectedAmount;
   final DateTime? detectedDate;
   final List<String> lineItems;
+  final String? suggestedCategory;
+  final String? providerLabel;
+  final bool fallbackUsed;
 
   Map<String, dynamic> toJson() {
     return {
@@ -19,7 +25,9 @@ class OcrExtractionResult {
       'detected_amount': detectedAmount,
       'detected_date': detectedDate?.toIso8601String(),
       'line_items': lineItems,
+      if (suggestedCategory != null) 'suggested_category': suggestedCategory,
+      if (providerLabel != null) 'provider_label': providerLabel,
+      'fallback_used': fallbackUsed,
     };
   }
 }
-

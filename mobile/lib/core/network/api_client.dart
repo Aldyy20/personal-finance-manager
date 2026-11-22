@@ -64,17 +64,36 @@ class ApiClient {
   Future<ApiResponse<T>> post<T>(
     String path, {
     dynamic data,
+    Options? options,
     T Function(dynamic rawData)? parseData,
   }) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         path,
         data: data,
+        options: options,
       );
       return ApiResponse.fromJson(response.data ?? const {}, parseData);
     } on DioException catch (e) {
       throw _mapDioException(e);
     }
+  }
+
+  Future<ApiResponse<T>> postMultipart<T>(
+    String path, {
+    required FormData formData,
+    Duration receiveTimeout = const Duration(seconds: 45),
+    T Function(dynamic rawData)? parseData,
+  }) async {
+    return post<T>(
+      path,
+      data: formData,
+      options: Options(
+        contentType: Headers.multipartFormDataContentType,
+        receiveTimeout: receiveTimeout,
+      ),
+      parseData: parseData,
+    );
   }
 
   Future<ApiResponse<T>> put<T>(

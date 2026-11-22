@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,9 +9,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:personal_finance_manager/app/app.dart';
 import 'package:personal_finance_manager/app/providers.dart';
+import 'package:personal_finance_manager/core/config/env_config.dart';
 import 'package:personal_finance_manager/core/database/app_database.dart';
+import 'package:personal_finance_manager/core/network/api_client.dart';
 import 'package:personal_finance_manager/core/security/secure_storage_service.dart';
 import 'package:personal_finance_manager/features/categories/presentation/categories_screen.dart';
+import 'package:personal_finance_manager/features/receipt_scanner/application/ai_receipt_vision_service.dart';
 import 'package:personal_finance_manager/features/receipt_scanner/application/ocr_parser_service.dart';
 import 'package:personal_finance_manager/features/reports/presentation/reports_screen.dart';
 import 'package:personal_finance_manager/features/settings/presentation/settings_screen.dart';
@@ -42,6 +49,29 @@ class _InMemorySecureStorage extends SecureStorageService {
 
   @override
   Future<String?> getLastEmail() async => _store['last_authenticated_email'];
+
+  @override
+  Future<void> saveAiApiKeys({
+    required String geminiKey,
+    required String groqKey,
+  }) async {
+    if (geminiKey.trim().isEmpty) {
+      _store.remove('ai_gemini_api_key');
+    } else {
+      _store['ai_gemini_api_key'] = geminiKey.trim();
+    }
+    if (groqKey.trim().isEmpty) {
+      _store.remove('ai_groq_api_key');
+    } else {
+      _store['ai_groq_api_key'] = groqKey.trim();
+    }
+  }
+
+  @override
+  Future<String?> getGeminiApiKey() async => _store['ai_gemini_api_key'];
+
+  @override
+  Future<String?> getGroqApiKey() async => _store['ai_groq_api_key'];
 
   @override
   Future<void> clearSession() async {
@@ -494,5 +524,143 @@ void main() {
         expect(find.text('Nonaktif'), findsOneWidget);
       },
     );
+
+    test('AiReceiptVisionService parses Gemini clean JSON & Groq markdown JSON', () {
+      final geminiRaw = jsonEncode({
+        'merchant_name': 'ALFAMART DIPONEGORO',
+        'total_amount': 'Rp 54.500,00',
+        'transaction_date': '2026-11-22 10:15:00',
+        'suggested_category': 'Belanja',
+        'line_items': ['Susu UHT 18.500', 'Roti Tawar 36.000'],
+        'raw_text': 'ALFAMART DIPONEGORO\nTOTAL 54.500',
+      });
+
+      final geminiParsed = AiReceiptVisionService.parseAiJsonPayload(
+        geminiRaw,
+        providerLabel: 'AI Gemini 2.5 Flash',
+      );
+      expect(geminiParsed, isNotNull);
+      expect(geminiParsed!.merchantName, 'ALFAMART DIPONEGORO');
+      expect(geminiParsed.detectedAmount, 54500);
+      expect(geminiParsed.suggestedCategory, 'Belanja');
+      expect(geminiParsed.detectedDate, DateTime(2026, 11, 22, 10, 15));
+      expect(geminiParsed.lineItems.length, 2);
+      expect(geminiParsed.fallbackUsed, isFalse);
+
+      const groqRaw = '''
+Hasil pembacaan nota:
+```json
+{
+  "merchant_name": "WARUNG BAKSO MAS",
+  "total_amount": 48000,
+  "transaction_date": "22/11/2026 12:30",
+  "suggested_category": "Makanan",
+  "line_items": ["Bakso Urat 25.000", "Es Teh 23.000"]
+}
+```''';
+      final groqParsed = AiReceiptVisionService.parseAiJsonPayload(
+        groqRaw,
+        providerLabel: 'Groq Fallback • Llama 4 Scout',
+        fallbackUsed: true,
+      );
+      expect(groqParsed, isNotNull);
+      expect(groqParsed!.merchantName, 'WARUNG BAKSO MAS');
+      expect(groqParsed.detectedAmount, 48000);
+      expect(groqParsed.detectedDate, DateTime(2026, 11, 22, 12, 30));
+      expect(groqParsed.suggestedCategory, 'Makanan');
+      expect(groqParsed.fallbackUsed, isTrue);
+    });
+
+    test('AiReceiptVisionService automatically falls back from Gemini 429 to Groq Vision', () async {
+      final storage = _InMemorySecureStorage();
+      await storage.saveAiApiKeys(
+        geminiKey: 'gem-key-123',
+        groqKey: 'gsk-key-456',
+      );
+
+      final env = const EnvConfig(
+        environment: AppEnvironment.prod,
+        apiBaseUrl: EnvConfig.productionBaseUrl,
+      );
+
+      final adapter = _StubAiFallbackAdapter();
+      final mockExternalDio = Dio()..httpClientAdapter = adapter;
+      final service = AiReceiptVisionService(
+        envConfig: env,
+        secureStorage: storage,
+        apiClient: ApiClient(envConfig: env, secureStorage: storage),
+        externalDio: mockExternalDio,
+      );
+
+      final tempBytes = Uint8List.fromList(<int>[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+
+      final outcome = await service.scanReceiptBytes(
+        bytes: tempBytes,
+        fileNameHint: 'struk.jpg',
+        categoryNames: const ['Makanan', 'Belanja', 'Kesehatan'],
+        isCloudAuthenticated: false,
+      );
+
+      expect(adapter.calledHosts, [
+        'generativelanguage.googleapis.com',
+        'api.groq.com',
+      ]);
+      expect(outcome.hasExtraction, isTrue);
+      expect(outcome.providerCode, 'groq');
+      expect(outcome.fallbackUsed, isTrue);
+      expect(outcome.result!.merchantName, 'SATE SENAYAN');
+      expect(outcome.result!.detectedAmount, 92000);
+      expect(outcome.result!.suggestedCategory, 'Makanan');
+    });
   });
+}
+
+class _StubAiFallbackAdapter implements HttpClientAdapter {
+  final List<String> calledHosts = [];
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    calledHosts.add(options.uri.host);
+    if (options.uri.host.contains('googleapis.com')) {
+      return ResponseBody.fromString(
+        jsonEncode({
+          'error': {'message': 'Quota exceeded'},
+        }),
+        429,
+        headers: {
+          Headers.contentTypeHeader: ['application/json'],
+        },
+      );
+    }
+
+    return ResponseBody.fromString(
+      jsonEncode({
+        'choices': [
+          {
+            'message': {
+              'content': jsonEncode({
+                'merchant_name': 'SATE SENAYAN',
+                'total_amount': 92000,
+                'transaction_date': '2026-11-22 13:00:00',
+                'suggested_category': 'Makanan',
+                'line_items': ['Sate Ayam 65.000', 'Lontong & Minum 27.000'],
+                'raw_text': 'SATE SENAYAN\nTOTAL 92.000',
+              }),
+            },
+          },
+        ],
+      }),
+      200,
+      headers: {
+        Headers.contentTypeHeader: ['application/json'],
+      },
+    );
+  }
 }
