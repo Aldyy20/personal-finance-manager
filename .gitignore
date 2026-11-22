@@ -55,4 +55,5 @@ mobile/android/app/debug/
 mobile/android/app/profile/
 mobile/android/app/release/
 mobile/**/*.freezed.dart
+dist/
 

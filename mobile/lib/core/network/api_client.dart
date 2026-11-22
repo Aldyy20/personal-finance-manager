@@ -19,6 +19,7 @@ class ApiClient {
                 headers: const {
                   'Accept': 'application/json',
                   'Content-Type': 'application/json',
+                  'User-Agent': 'PersonalFinanceApp/1.0.0 (Android; Mobile)',
                 },
               ),
             ) {
@@ -124,12 +125,57 @@ class ApiClient {
       return const NetworkException();
     }
 
-    final message = (body is Map && body['message'] is String)
+    final rawMessage = (body is Map && body['message'] is String)
         ? body['message'] as String
-        : (e.message ?? 'Terjadi kesalahan pada server.');
+        : (body is String ? body : null);
+
+    final isImunify = (rawMessage != null &&
+            (rawMessage.contains('Imunify360') ||
+                rawMessage.contains('bot-protection') ||
+                rawMessage.contains('WebShield'))) ||
+        (e.message != null &&
+            (e.message!.contains('Imunify360') ||
+                e.message!.contains('bot-protection')));
+
+    final String message;
+    if (isImunify) {
+      message =
+          'Akses API diblokir oleh proteksi server hosting (Imunify360 Bot-Protection). '
+          'Silakan periksa pengaturan Imunify360/ModSecurity di cPanel atau hubungi pihak hosting.';
+    } else if (body is Map &&
+        body['message'] is String &&
+        (body['message'] as String).trim().isNotEmpty) {
+      message = (body['message'] as String).trim();
+    } else {
+      message = switch (status) {
+        400 => 'Permintaan tidak valid (400). Periksa kembali data yang dimasukkan.',
+        401 => 'Email atau kata sandi tidak cocok, atau sesi telah berakhir (401).',
+        403 => 'Akses ditolak oleh server (403).',
+        404 =>
+          'Endpoint API tidak ditemukan di server (404). Pastikan backend dan routing di hosting sudah terpasang dengan benar.',
+        405 => 'Metode request HTTP tidak diizinkan oleh server (405).',
+        408 => 'Waktu permintaan habis (408). Silakan coba lagi.',
+        422 => 'Validasi data gagal (422). Periksa kembali isian formulir.',
+        429 => 'Terlalu banyak permintaan (429). Silakan tunggu sejenak.',
+        500 =>
+          'Terjadi gangguan internal pada server (500). Periksa file log Laravel di storage/logs.',
+        502 => 'Server gateway bermasalah (502 Bad Gateway).',
+        503 => 'Server sedang dalam pemeliharaan atau tidak dapat diakses (503).',
+        504 => 'Waktu respon server habis (504 Gateway Timeout).',
+        _ => 'Terjadi kesalahan pada server ($status).',
+      };
+    }
+
     final code = (body is Map && body['code'] is String)
         ? body['code'] as String
-        : 'HTTP_ERROR';
+        : switch (status) {
+            401 => 'UNAUTHENTICATED',
+            403 => 'FORBIDDEN',
+            404 => 'NOT_FOUND',
+            422 => 'VALIDATION_ERROR',
+            _ => 'HTTP_ERROR',
+          };
+
     final errors = (body is Map && body['errors'] is Map<String, dynamic>)
         ? body['errors'] as Map<String, dynamic>
         : null;
