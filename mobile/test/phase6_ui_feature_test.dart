@@ -13,6 +13,7 @@ import 'package:personal_finance_manager/core/config/env_config.dart';
 import 'package:personal_finance_manager/core/database/app_database.dart';
 import 'package:personal_finance_manager/core/network/api_client.dart';
 import 'package:personal_finance_manager/core/security/secure_storage_service.dart';
+import 'package:personal_finance_manager/features/authentication/presentation/auth_screen.dart';
 import 'package:personal_finance_manager/features/categories/presentation/categories_screen.dart';
 import 'package:personal_finance_manager/features/receipt_scanner/application/ai_receipt_vision_service.dart';
 import 'package:personal_finance_manager/features/receipt_scanner/application/ocr_parser_service.dart';
@@ -80,12 +81,18 @@ class _InMemorySecureStorage extends SecureStorageService {
   }
 }
 
-Future<AppDatabase> _pumpAppWithMemoryDb(WidgetTester tester) async {
+Future<AppDatabase> _pumpAppWithMemoryDb(
+  WidgetTester tester, {
+  ApiClient? apiClient,
+  SecureStorageService? secureStorage,
+}) async {
   final db = AppDatabase(NativeDatabase.memory());
+  final storage = secureStorage ?? _InMemorySecureStorage();
   final container = ProviderContainer(
     overrides: [
       appDatabaseProvider.overrideWithValue(db),
-      secureStorageServiceProvider.overrideWithValue(_InMemorySecureStorage()),
+      secureStorageServiceProvider.overrideWithValue(storage),
+      if (apiClient != null) apiClientProvider.overrideWithValue(apiClient),
       backendHealthProvider.overrideWith(
         (ref) async => {
           'status': 'ok',
@@ -627,7 +634,313 @@ Hasil pembacaan nota:
       expect(outcome.result!.detectedAmount, 92000);
       expect(outcome.result!.suggestedCategory, 'Makanan');
     });
+
+    testWidgets(
+      'AuthScreen supports Login, Register with email OTP (without name), and 3-step Forgot Password flow',
+      timeout: const Timeout(Duration(seconds: 30)),
+      (tester) async {
+        final storage = _InMemorySecureStorage();
+        final authAdapter = _StubAuthAdapter();
+        const env = EnvConfig(
+          environment: AppEnvironment.prod,
+          apiBaseUrl: EnvConfig.productionBaseUrl,
+        );
+        final mockDio = Dio(
+          BaseOptions(
+            baseUrl: env.apiBaseUrl,
+            headers: const {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+          ),
+        )..httpClientAdapter = authAdapter;
+        final stubApiClient = ApiClient(
+          envConfig: env,
+          secureStorage: storage,
+          dio: mockDio,
+        );
+
+        await _pumpAppWithMemoryDb(
+          tester,
+          apiClient: stubApiClient,
+          secureStorage: storage,
+        );
+
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Masuk atau Daftar Akun Cloud'));
+        await tester.pumpAndSettle();
+        expect(find.byType(AuthScreen), findsOneWidget);
+
+        // 1. Register Tab: Email + Password + Confirm + 6-digit Email OTP (no Nama Lengkap)
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AuthScreen),
+            matching: find.text('Daftar'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Nama Lengkap'), findsNothing);
+
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Email'),
+          'budi@example.com',
+        );
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Kata Sandi'),
+          'PassBaru123!',
+        );
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Konfirmasi Kata Sandi'),
+          'PassBaru123!',
+        );
+
+        final sendOtpBtn = find.text('Kirim OTP');
+        await tester.ensureVisible(sendOtpBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(sendOtpBtn);
+        await tester.pumpAndSettle();
+
+        expect(authAdapter.sentRegisterOtpEmail, 'budi@example.com');
+        expect(
+          find.textContaining('Kode OTP terkirim ke budi@example.com'),
+          findsOneWidget,
+        );
+
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Kode OTP Email (6 digit)'),
+          '654321',
+        );
+        final registerBtn = find.text('Daftar Akun');
+        await tester.ensureVisible(registerBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(registerBtn);
+        await tester.pumpAndSettle();
+
+        expect(authAdapter.registeredOtpCode, '654321');
+        expect(find.text('Akun Cloud Terhubung'), findsOneWidget);
+        expect(find.text('budi@example.com'), findsOneWidget);
+
+        // Logout so we can test 3-step Forgot Password & Login
+        await tester.tap(find.text('Keluar dari Akun Cloud'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Masuk atau Daftar Akun Cloud'));
+        await tester.pumpAndSettle();
+
+        // 2. Forgot Password 3-step flow: Email -> OTP -> New Password
+        final forgotLink = find.text('Lupa kata sandi?');
+        await tester.ensureVisible(forgotLink);
+        await tester.pumpAndSettle();
+        await tester.tap(forgotLink);
+        await tester.pumpAndSettle();
+
+        expect(find.text('1. Email'), findsOneWidget);
+        expect(find.text('2. Kode OTP'), findsOneWidget);
+        expect(find.text('3. Sandi Baru'), findsOneWidget);
+
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Email'),
+          'budi@example.com',
+        );
+        final sendResetOtpBtn = find.text('Kirim Kode OTP');
+        await tester.ensureVisible(sendResetOtpBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(sendResetOtpBtn);
+        await tester.pumpAndSettle();
+
+        expect(authAdapter.sentResetOtpEmail, 'budi@example.com');
+        expect(find.text('Email Tujuan OTP'), findsOneWidget);
+
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Kode OTP Email (6 digit)'),
+          '112233',
+        );
+        final verifyOtpBtn = find.text('Verifikasi Kode OTP');
+        await tester.ensureVisible(verifyOtpBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(verifyOtpBtn);
+        await tester.pumpAndSettle();
+
+        expect(authAdapter.verifiedResetOtpCode, '112233');
+        expect(
+          find.text('OTP terverifikasi untuk budi@example.com.'),
+          findsOneWidget,
+        );
+
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Kata Sandi Baru'),
+          'PassBaru999!',
+        );
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Konfirmasi Kata Sandi Baru'),
+          'PassBaru999!',
+        );
+        final saveNewPassBtn = find.text('Simpan Kata Sandi Baru');
+        await tester.ensureVisible(saveNewPassBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(saveNewPassBtn);
+        await tester.pumpAndSettle();
+
+        expect(authAdapter.resetNewPassword, 'PassBaru999!');
+
+        // 3. Returned automatically to Login tab -> sign in with new password
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Kata Sandi'),
+          'PassBaru999!',
+        );
+        final loginBtn = find.widgetWithText(FilledButton, 'Masuk');
+        await tester.ensureVisible(loginBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(loginBtn);
+        await tester.pumpAndSettle();
+
+        expect(authAdapter.loggedInEmail, 'budi@example.com');
+        expect(find.text('Akun Cloud Terhubung'), findsOneWidget);
+      },
+    );
   });
+}
+
+class _StubAuthAdapter implements HttpClientAdapter {
+  String? sentRegisterOtpEmail;
+  String? registeredOtpCode;
+  String? sentResetOtpEmail;
+  String? verifiedResetOtpCode;
+  String? resetNewPassword;
+  String? loggedInEmail;
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final path = options.uri.path;
+    final body = options.data is Map
+        ? Map<String, dynamic>.from(options.data as Map)
+        : <String, dynamic>{};
+
+    ResponseBody jsonRes(int status, Map<String, dynamic> payload) {
+      return ResponseBody.fromString(
+        jsonEncode(payload),
+        status,
+        headers: {
+          Headers.contentTypeHeader: ['application/json'],
+        },
+      );
+    }
+
+    if (path.endsWith('/auth/register/send-otp')) {
+      sentRegisterOtpEmail = body['email']?.toString();
+      return jsonRes(200, {
+        'success': true,
+        'message': 'Kode OTP telah dikirim ke email Anda.',
+        'data': {
+          'email': sentRegisterOtpEmail,
+          'expires_in_seconds': 600,
+          'resend_cooldown_seconds': 60,
+        },
+      });
+    }
+
+    if (path.endsWith('/auth/register')) {
+      registeredOtpCode = body['otp_code']?.toString();
+      return jsonRes(201, {
+        'success': true,
+        'message': 'Registration successful',
+        'data': {
+          'user': {
+            'id': 'user-budi-001',
+            'name': 'Budi',
+            'email': body['email'] ?? 'budi@example.com',
+          },
+          'settings': {
+            'id': 'set-001',
+            'theme_mode': 'system',
+            'currency': 'IDR',
+            'timezone': 'Asia/Jakarta',
+            'budget_warning_percent': 80,
+          },
+          'access_token': 'tok-register-001',
+          'token_type': 'Bearer',
+          'sync_meta': {'last_sequence': 0, 'device_cursor': 0},
+        },
+      });
+    }
+
+    if (path.endsWith('/auth/password/send-otp')) {
+      sentResetOtpEmail = body['email']?.toString();
+      return jsonRes(200, {
+        'success': true,
+        'message': 'Kode OTP reset kata sandi telah dikirim ke email Anda.',
+        'data': {
+          'email': sentResetOtpEmail,
+          'expires_in_seconds': 600,
+          'resend_cooldown_seconds': 60,
+        },
+      });
+    }
+
+    if (path.endsWith('/auth/password/verify-otp')) {
+      verifiedResetOtpCode = body['otp_code']?.toString();
+      return jsonRes(200, {
+        'success': true,
+        'message': 'Kode OTP terverifikasi.',
+        'data': {
+          'email': body['email'],
+          'verified': true,
+        },
+      });
+    }
+
+    if (path.endsWith('/auth/password/reset')) {
+      resetNewPassword = body['password']?.toString();
+      return jsonRes(200, {
+        'success': true,
+        'message': 'Kata sandi berhasil diperbarui.',
+        'data': {'email': body['email']},
+      });
+    }
+
+    if (path.endsWith('/auth/login')) {
+      loggedInEmail = body['email']?.toString();
+      return jsonRes(200, {
+        'success': true,
+        'message': 'Login successful',
+        'data': {
+          'user': {
+            'id': 'user-budi-001',
+            'name': 'Budi',
+            'email': loggedInEmail ?? 'budi@example.com',
+          },
+          'access_token': 'tok-login-001',
+          'token_type': 'Bearer',
+          'sync_meta': {'last_sequence': 0, 'device_cursor': 0},
+        },
+      });
+    }
+
+    if (path.endsWith('/auth/logout')) {
+      return jsonRes(200, {'success': true, 'message': 'Logout successful'});
+    }
+
+    if (path.endsWith('/sync/pull')) {
+      return jsonRes(200, {
+        'success': true,
+        'data': {
+          'changes': <dynamic>[],
+          'next_cursor': 0,
+          'has_more': false,
+        },
+      });
+    }
+
+    return jsonRes(404, {'success': false, 'message': 'Not mocked: $path'});
+  }
 }
 
 class _StubAiFallbackAdapter implements HttpClientAdapter {

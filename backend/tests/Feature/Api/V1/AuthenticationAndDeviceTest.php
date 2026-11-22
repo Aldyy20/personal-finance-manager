@@ -2,12 +2,15 @@
 
 namespace Tests\Feature\Api\V1;
 
+use App\Mail\AuthOtpMail;
 use App\Models\Account;
 use App\Models\Category;
 use App\Models\Device;
 use App\Models\SyncSequence;
 use App\Models\User;
+use App\Services\EmailOtpService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -18,12 +21,14 @@ class AuthenticationAndDeviceTest extends TestCase
     public function test_register_bootstraps_user_settings_categories_cash_account_and_device(): void
     {
         $deviceId = (string) Str::uuid();
+        $otp = $this->issueOtpForTest('Aldi@Example.com');
 
         $response = $this->postJson('/api/v1/auth/register', [
             'name' => 'Aldi User',
             'email' => 'Aldi@Example.com',
             'password' => 'SecurePass123!',
             'password_confirmation' => 'SecurePass123!',
+            'otp_code' => $otp,
             'device' => [
                 'id' => $deviceId,
                 'name' => 'Pixel Physical Phone',
@@ -66,11 +71,13 @@ class AuthenticationAndDeviceTest extends TestCase
     public function test_login_me_refresh_and_logout_flow(): void
     {
         $deviceId = (string) Str::uuid();
+        $otp = $this->issueOtpForTest('budi@example.com');
         $this->postJson('/api/v1/auth/register', [
             'name' => 'Budi',
             'email' => 'budi@example.com',
             'password' => 'SecretPass123',
             'password_confirmation' => 'SecretPass123',
+            'otp_code' => $otp,
         ])->assertStatus(201);
 
         $badLogin = $this->postJson('/api/v1/auth/login', [
@@ -118,11 +125,13 @@ class AuthenticationAndDeviceTest extends TestCase
 
     public function test_profile_settings_and_cross_user_device_isolation(): void
     {
+        $otpA = $this->issueOtpForTest('usera@example.com');
         $regA = $this->postJson('/api/v1/auth/register', [
             'name' => 'User A',
             'email' => 'usera@example.com',
             'password' => 'PasswordA123',
             'password_confirmation' => 'PasswordA123',
+            'otp_code' => $otpA,
             'device' => [
                 'id' => (string) Str::uuid(),
                 'name' => 'Device A',
@@ -132,11 +141,13 @@ class AuthenticationAndDeviceTest extends TestCase
         $tokenA = $regA->json('data.access_token');
         $deviceAId = $regA->json('data.device.id');
 
+        $otpB = $this->issueOtpForTest('userb@example.com');
         $regB = $this->postJson('/api/v1/auth/register', [
             'name' => 'User B',
             'email' => 'userb@example.com',
             'password' => 'PasswordB123',
             'password_confirmation' => 'PasswordB123',
+            'otp_code' => $otpB,
         ])->assertStatus(201);
 
         $tokenB = $regB->json('data.access_token');
@@ -188,5 +199,127 @@ class AuthenticationAndDeviceTest extends TestCase
             ->assertJsonPath('data.is_active', false);
 
         $this->assertFalse(Device::query()->findOrFail($deviceBId)->is_active);
+    }
+
+    public function test_register_requires_valid_email_otp_and_supports_registration_without_name(): void
+    {
+        Mail::fake();
+
+        $this->postJson('/api/v1/auth/register/send-otp', [
+            'email' => 'siti.rahma@example.com',
+        ])->assertStatus(200)
+            ->assertJsonPath('data.email', 'siti.rahma@example.com')
+            ->assertJsonPath('data.resend_cooldown_seconds', 60);
+
+        $capturedOtp = null;
+        Mail::assertSent(AuthOtpMail::class, function (AuthOtpMail $mail) use (&$capturedOtp) {
+            $capturedOtp = $mail->otpCode;
+
+            return $mail->hasTo('siti.rahma@example.com')
+                && $mail->purpose === EmailOtpService::PURPOSE_REGISTER
+                && strlen($mail->otpCode) === 6;
+        });
+        $this->assertNotNull($capturedOtp);
+
+        // Immediate resend triggers 422 cooldown
+        $this->postJson('/api/v1/auth/register/send-otp', [
+            'email' => 'siti.rahma@example.com',
+        ])->assertStatus(422)->assertJson(['code' => 'VALIDATION_ERROR']);
+
+        // Wrong OTP rejected with 422
+        $wrongCode = $capturedOtp === '000000' ? '111111' : '000000';
+        $this->postJson('/api/v1/auth/register', [
+            'email' => 'siti.rahma@example.com',
+            'password' => 'SitiPass123!',
+            'password_confirmation' => 'SitiPass123!',
+            'otp_code' => $wrongCode,
+        ])->assertStatus(422)->assertJson(['code' => 'VALIDATION_ERROR']);
+
+        // Correct OTP without `name` succeeds, verifies email, and derives name
+        $reg = $this->postJson('/api/v1/auth/register', [
+            'email' => 'siti.rahma@example.com',
+            'password' => 'SitiPass123!',
+            'password_confirmation' => 'SitiPass123!',
+            'otp_code' => $capturedOtp,
+        ])->assertStatus(201)
+            ->assertJsonPath('data.user.name', 'Siti Rahma')
+            ->assertJsonPath('data.user.email', 'siti.rahma@example.com');
+
+        $user = User::query()->findOrFail($reg->json('data.user.id'));
+        $this->assertNotNull($user->email_verified_at);
+
+        // Reusing the same OTP fails even if queried directly
+        $this->expectException(\App\Exceptions\FinancialValidationException::class);
+        app(EmailOtpService::class)->verifyOtp('siti.rahma@example.com', EmailOtpService::PURPOSE_REGISTER, $capturedOtp);
+    }
+
+    public function test_forgot_password_three_step_otp_flow_resets_password_and_revokes_tokens(): void
+    {
+        Mail::fake();
+
+        $registerOtp = $this->issueOtpForTest('reset@example.com');
+        $reg = $this->postJson('/api/v1/auth/register', [
+            'name' => 'Reset User',
+            'email' => 'reset@example.com',
+            'password' => 'OldPass123!',
+            'password_confirmation' => 'OldPass123!',
+            'otp_code' => $registerOtp,
+        ])->assertStatus(201);
+        $oldToken = $reg->json('data.access_token');
+
+        // Unregistered email rejected with 422
+        $this->postJson('/api/v1/auth/password/send-otp', [
+            'email' => 'tidakada@example.com',
+        ])->assertStatus(422)->assertJson(['code' => 'VALIDATION_ERROR']);
+
+        // Step 1: Send OTP
+        $this->postJson('/api/v1/auth/password/send-otp', [
+            'email' => 'reset@example.com',
+        ])->assertStatus(200)
+            ->assertJsonPath('data.email', 'reset@example.com');
+
+        $resetOtp = null;
+        Mail::assertSent(AuthOtpMail::class, function (AuthOtpMail $mail) use (&$resetOtp) {
+            $resetOtp = $mail->otpCode;
+
+            return $mail->hasTo('reset@example.com')
+                && $mail->purpose === EmailOtpService::PURPOSE_PASSWORD_RESET;
+        });
+        $this->assertNotNull($resetOtp);
+
+        // Step 2: Wrong OTP fails, valid OTP verifies cleanly without consuming
+        $wrongOtp = $resetOtp === '999999' ? '888888' : '999999';
+        $this->postJson('/api/v1/auth/password/verify-otp', [
+            'email' => 'reset@example.com',
+            'otp_code' => $wrongOtp,
+        ])->assertStatus(422);
+
+        $this->postJson('/api/v1/auth/password/verify-otp', [
+            'email' => 'reset@example.com',
+            'otp_code' => $resetOtp,
+        ])->assertStatus(200)
+            ->assertJsonPath('data.verified', true);
+
+        // Step 3: Reset password consumes OTP and revokes prior Sanctum tokens
+        $this->postJson('/api/v1/auth/password/reset', [
+            'email' => 'reset@example.com',
+            'otp_code' => $resetOtp,
+            'password' => 'NewSecurePass123!',
+            'password_confirmation' => 'NewSecurePass123!',
+        ])->assertStatus(200);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($oldToken)->getJson('/api/v1/auth/me')->assertStatus(401);
+
+        // Old password fails, new password succeeds
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'reset@example.com',
+            'password' => 'OldPass123!',
+        ])->assertStatus(401);
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'reset@example.com',
+            'password' => 'NewSecurePass123!',
+        ])->assertStatus(200)->assertJsonPath('data.user.email', 'reset@example.com');
     }
 }

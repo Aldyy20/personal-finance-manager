@@ -89,25 +89,34 @@ class SessionController extends AsyncNotifier<ActiveWorkspaceSession> {
   }
 
   Future<void> register({
-    required String name,
+    String? name,
     required String email,
     required String password,
     required String passwordConfirmation,
+    required String otpCode,
   }) async {
     final authRepo = ref.read(authRepositoryProvider);
+    final db = ref.read(appDatabaseProvider);
     final authSession = await authRepo.register(
       name: name,
       email: email,
       password: password,
       passwordConfirmation: passwordConfirmation,
+      otpCode: otpCode,
       pullInitialData: true,
     );
+    final user = await (db.select(db.localUsers)
+          ..where((t) => t.id.equals(authSession.userId)))
+        .getSingleOrNull();
 
     state = AsyncData(
       ActiveWorkspaceSession(
         userId: authSession.userId,
         deviceId: authSession.deviceId,
-        name: name.trim(),
+        name: user?.name ??
+            ((name != null && name.trim().isNotEmpty)
+                ? name.trim()
+                : email.split('@').first),
         email: authSession.email,
         isCloudAuthenticated: true,
       ),

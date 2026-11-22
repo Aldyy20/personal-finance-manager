@@ -19,12 +19,24 @@ Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class)->name('api.v1.health');
 
     Route::prefix('auth')->group(function () {
+        Route::post('/register/send-otp', [AuthController::class, 'sendRegisterOtp'])
+            ->middleware('throttle:5,1')
+            ->name('api.v1.auth.register.send-otp');
         Route::post('/register', [AuthController::class, 'register'])
             ->middleware('throttle:10,1')
             ->name('api.v1.auth.register');
         Route::post('/login', [AuthController::class, 'login'])
             ->middleware('throttle:10,1')
             ->name('api.v1.auth.login');
+        Route::post('/password/send-otp', [AuthController::class, 'sendPasswordResetOtp'])
+            ->middleware('throttle:5,1')
+            ->name('api.v1.auth.password.send-otp');
+        Route::post('/password/verify-otp', [AuthController::class, 'verifyPasswordResetOtp'])
+            ->middleware('throttle:10,1')
+            ->name('api.v1.auth.password.verify-otp');
+        Route::post('/password/reset', [AuthController::class, 'resetPasswordWithOtp'])
+            ->middleware('throttle:10,1')
+            ->name('api.v1.auth.password.reset');
     });
 
     Route::middleware('auth:sanctum')->group(function () {

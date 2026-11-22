@@ -19,11 +19,13 @@ class SynchronizationApiTest extends TestCase
         $device1Id = (string) Str::uuid();
         $device2Id = (string) Str::uuid();
 
+        $otp = $this->issueOtpForTest('sync@example.com');
         $reg = $this->postJson('/api/v1/auth/register', [
             'name' => 'Sync Tester',
             'email' => 'sync@example.com',
             'password' => 'SyncPass123!',
             'password_confirmation' => 'SyncPass123!',
+            'otp_code' => $otp,
             'device' => [
                 'id' => $device1Id,
                 'name' => 'Device 1',

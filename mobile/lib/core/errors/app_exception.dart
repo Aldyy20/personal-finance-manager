@@ -11,6 +11,21 @@ sealed class AppException implements Exception {
   final int? statusCode;
   final Map<String, dynamic>? errors;
 
+  String get displayMessage {
+    final errMap = errors;
+    if (errMap != null) {
+      for (final value in errMap.values) {
+        if (value is List && value.isNotEmpty) {
+          final first = value.first?.toString().trim();
+          if (first != null && first.isNotEmpty) return first;
+        } else if (value is String && value.trim().isNotEmpty) {
+          return value.trim();
+        }
+      }
+    }
+    return message;
+  }
+
   @override
   String toString() => '[$code] ($statusCode): $message';
 }

@@ -18,11 +18,13 @@ class Phase7QualityAssuranceTest extends TestCase
         $deviceAId = (string) Str::uuid();
         $deviceBId = (string) Str::uuid();
 
+        $otp = $this->issueOtpForTest('qa_multi@example.com');
         $reg = $this->postJson('/api/v1/auth/register', [
             'name' => 'QA Multi Device',
             'email' => 'qa_multi@example.com',
             'password' => 'QaPassword123!',
             'password_confirmation' => 'QaPassword123!',
+            'otp_code' => $otp,
             'device' => [
                 'id' => $deviceAId,
                 'name' => 'Pixel QA 1',
@@ -207,11 +209,13 @@ class Phase7QualityAssuranceTest extends TestCase
         $deviceA1 = (string) Str::uuid();
         $deviceA2 = (string) Str::uuid();
 
+        $otpA = $this->issueOtpForTest('owner_a@example.com');
         $regA = $this->postJson('/api/v1/auth/register', [
             'name' => 'Owner A',
             'email' => 'owner_a@example.com',
             'password' => 'OwnerPass123!',
             'password_confirmation' => 'OwnerPass123!',
+            'otp_code' => $otpA,
             'device' => ['id' => $deviceA1, 'name' => 'A1', 'platform' => 'android'],
         ])->assertStatus(201);
         $tokenA = $regA->json('data.access_token');
@@ -282,11 +286,13 @@ class Phase7QualityAssuranceTest extends TestCase
         ])->assertStatus(201)->json('data.id');
 
         // Register User B and assert IDOR isolation across all endpoints
+        $otpB = $this->issueOtpForTest('attacker_b@example.com');
         $regB = $this->postJson('/api/v1/auth/register', [
             'name' => 'Attacker B',
             'email' => 'attacker_b@example.com',
             'password' => 'AttackerPass123!',
             'password_confirmation' => 'AttackerPass123!',
+            'otp_code' => $otpB,
         ])->assertStatus(201);
         $tokenB = $regB->json('data.access_token');
 
@@ -303,11 +309,13 @@ class Phase7QualityAssuranceTest extends TestCase
     public function test_batch_50_sync_operations_performance_and_ledger_invariant(): void
     {
         $deviceId = (string) Str::uuid();
+        $otp = $this->issueOtpForTest('perf50@example.com');
         $reg = $this->postJson('/api/v1/auth/register', [
             'name' => 'Batch Perf Tester',
             'email' => 'perf50@example.com',
             'password' => 'PerfPass123!',
             'password_confirmation' => 'PerfPass123!',
+            'otp_code' => $otp,
             'device' => ['id' => $deviceId, 'name' => 'Perf Phone', 'platform' => 'android'],
         ])->assertStatus(201);
 

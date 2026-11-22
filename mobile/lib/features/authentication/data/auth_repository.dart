@@ -43,30 +43,100 @@ class AuthRepository {
     return _uuid.v4();
   }
 
+  Future<({int expiresInSeconds, int resendCooldownSeconds})> sendRegisterOtp({
+    required String email,
+  }) async {
+    final res = await apiClient.post<Map<String, dynamic>>(
+      '/auth/register/send-otp',
+      data: {'email': email},
+      parseData: (raw) => Map<String, dynamic>.from(raw as Map),
+    );
+    final data = res.data ?? const {};
+    return (
+      expiresInSeconds: (data['expires_in_seconds'] as num?)?.toInt() ?? 600,
+      resendCooldownSeconds:
+          (data['resend_cooldown_seconds'] as num?)?.toInt() ?? 60,
+    );
+  }
+
+  Future<({int expiresInSeconds, int resendCooldownSeconds})>
+      sendPasswordResetOtp({
+    required String email,
+  }) async {
+    final res = await apiClient.post<Map<String, dynamic>>(
+      '/auth/password/send-otp',
+      data: {'email': email},
+      parseData: (raw) => Map<String, dynamic>.from(raw as Map),
+    );
+    final data = res.data ?? const {};
+    return (
+      expiresInSeconds: (data['expires_in_seconds'] as num?)?.toInt() ?? 600,
+      resendCooldownSeconds:
+          (data['resend_cooldown_seconds'] as num?)?.toInt() ?? 60,
+    );
+  }
+
+  Future<void> verifyPasswordResetOtp({
+    required String email,
+    required String otpCode,
+  }) async {
+    await apiClient.post<dynamic>(
+      '/auth/password/verify-otp',
+      data: {
+        'email': email,
+        'otp_code': otpCode,
+      },
+    );
+  }
+
+  Future<void> resetPasswordWithOtp({
+    required String email,
+    required String otpCode,
+    required String password,
+    required String passwordConfirmation,
+  }) async {
+    await apiClient.post<dynamic>(
+      '/auth/password/reset',
+      data: {
+        'email': email,
+        'otp_code': otpCode,
+        'password': password,
+        'password_confirmation': passwordConfirmation,
+      },
+    );
+  }
+
   Future<AuthSession> register({
-    required String name,
+    String? name,
     required String email,
     required String password,
     required String passwordConfirmation,
+    String otpCode = '',
     String deviceName = 'Android Device',
     bool pullInitialData = true,
   }) async {
     final deviceId = await ensureDeviceId();
 
+    final payload = <String, dynamic>{
+      'email': email,
+      'password': password,
+      'password_confirmation': passwordConfirmation,
+      'otp_code': otpCode,
+      'device': {
+        'id': deviceId,
+        'name': deviceName,
+        'platform': 'android',
+        'app_version': '1.0.0',
+      },
+    };
+    final trimmedName = name?.trim() ?? '';
+    if (trimmedName.isNotEmpty) {
+      payload['name'] = trimmedName;
+    }
+
     final res = await apiClient.post<Map<String, dynamic>>(
       '/auth/register',
-      data: {
-        'name': name,
-        'email': email,
-        'password': password,
-        'password_confirmation': passwordConfirmation,
-        'device': {
-          'id': deviceId,
-          'name': deviceName,
-          'platform': 'android',
-          'app_version': '1.0.0',
-        },
-      },
+      data: payload,
       parseData: (raw) => Map<String, dynamic>.from(raw as Map),
     );
 
