@@ -64,6 +64,71 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _handleBiometricToggle(
+    BuildContext context,
+    WidgetRef ref,
+    bool value,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (!value) {
+      await ref.read(biometricEnabledProvider.notifier).setEnabled(false);
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Login cepat dengan sidik jari dinonaktifkan.'),
+        ),
+      );
+      return;
+    }
+
+    final biometricService = ref.read(biometricAuthServiceProvider);
+    final available = await biometricService.isBiometricAvailable();
+    if (!available) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Perangkat tidak mendukung atau belum mendaftarkan biometrik/sidik jari.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    ref.read(biometricPromptActiveProvider.notifier).state = true;
+    var verified = false;
+    try {
+      verified = await biometricService.authenticate(
+        reason: 'Konfirmasi sidik jari untuk mengaktifkan Login Cepat',
+      );
+    } finally {
+      ref.read(biometricPromptActiveProvider.notifier).state = false;
+    }
+
+    if (!context.mounted) return;
+    if (!verified) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Verifikasi sidik jari dibatalkan. Login Cepat belum diaktifkan.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await ref.read(biometricEnabledProvider.notifier).setEnabled(true);
+    if (!context.mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Login cepat dengan sidik jari berhasil diaktifkan.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
@@ -72,6 +137,7 @@ class SettingsScreen extends ConsumerWidget {
     final financialColors = theme.extension<FinancialColors>()!;
     final sessionAsync = ref.watch(activeSessionProvider);
     final themeMode = ref.watch(themeModeProvider);
+    final biometricEnabled = ref.watch(biometricEnabledProvider).valueOrNull ?? false;
     final syncInfo = ref.watch(syncStatusProvider);
     final pendingCount =
         ref.watch(pendingOutboxCountProvider).valueOrNull ?? syncInfo.pendingCount;
@@ -273,7 +339,53 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // 2. Seksi Sinkronisasi & Cadangan Data
+            // 2. Seksi Keamanan & Login Cepat
+            const SectionHeader(title: 'Keamanan & Login Cepat'),
+            const SizedBox(height: AppSpacing.sm),
+            Card(
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    key: const Key('biometric_toggle_switch'),
+                    secondary: Icon(
+                      Icons.fingerprint_rounded,
+                      color: session.isCloudAuthenticated
+                          ? financialColors.brandBlueLight
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                    title: const Text('Login Cepat dengan Sidik Jari'),
+                    subtitle: Text(
+                      !session.isCloudAuthenticated
+                          ? 'Masuk dengan email & kata sandi terlebih dahulu untuk mengaktifkan sidik jari'
+                          : (biometricEnabled
+                              ? 'Aktif • Gunakan sidik jari atau kata sandi saat membuka aplikasi'
+                              : 'Nonaktif • Aktifkan untuk membuka aplikasi dengan sidik jari'),
+                    ),
+                    value: session.isCloudAuthenticated && biometricEnabled,
+                    onChanged: session.isCloudAuthenticated
+                        ? (val) => _handleBiometricToggle(context, ref, val)
+                        : null,
+                  ),
+                  if (session.isCloudAuthenticated) ...[
+                    const Divider(),
+                    ListTile(
+                      leading: const Icon(Icons.lock_outline_rounded),
+                      title: const Text('Kunci Aplikasi Sekarang'),
+                      subtitle: const Text(
+                        'Kembali ke layar kunci dengan email tersimpan',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        ref.read(appUnlockedProvider.notifier).state = false;
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+
+            // 3. Seksi Sinkronisasi & Cadangan Data
             const SectionHeader(title: 'Sinkronisasi & Cadangan Data'),
             const SizedBox(height: AppSpacing.sm),
             SyncStatusBanner(

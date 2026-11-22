@@ -12,6 +12,7 @@ import 'package:personal_finance_manager/app/providers.dart';
 import 'package:personal_finance_manager/core/config/env_config.dart';
 import 'package:personal_finance_manager/core/database/app_database.dart';
 import 'package:personal_finance_manager/core/network/api_client.dart';
+import 'package:personal_finance_manager/core/security/biometric_auth_service.dart';
 import 'package:personal_finance_manager/core/security/secure_storage_service.dart';
 import 'package:personal_finance_manager/features/authentication/presentation/auth_screen.dart';
 import 'package:personal_finance_manager/features/categories/presentation/categories_screen.dart';
@@ -22,6 +23,8 @@ import 'package:personal_finance_manager/features/settings/presentation/settings
 import 'package:personal_finance_manager/features/transactions/presentation/transaction_form_sheet.dart';
 
 class _InMemorySecureStorage extends SecureStorageService {
+  _InMemorySecureStorage() : super(inMemory: true);
+
   final Map<String, String> _store = {};
 
   @override
@@ -52,6 +55,10 @@ class _InMemorySecureStorage extends SecureStorageService {
   Future<String?> getLastEmail() async => _store['last_authenticated_email'];
 
   @override
+  Future<void> clearLastEmail() async =>
+      _store.remove('last_authenticated_email');
+
+  @override
   Future<void> saveAiApiKeys({
     required String geminiKey,
     required String groqKey,
@@ -78,6 +85,23 @@ class _InMemorySecureStorage extends SecureStorageService {
   Future<void> clearSession() async {
     _store.remove('access_token');
     _store.remove('user_id');
+    await clearLocalPasswordVerifier();
+    await saveBiometricEnabled(false);
+  }
+}
+
+class _StubBiometricAuthService extends BiometricAuthService {
+  bool available = true;
+  bool shouldSucceed = true;
+  int authenticateCalls = 0;
+
+  @override
+  Future<bool> isBiometricAvailable() async => available;
+
+  @override
+  Future<bool> authenticate({required String reason}) async {
+    authenticateCalls++;
+    return shouldSucceed;
   }
 }
 
@@ -85,13 +109,16 @@ Future<AppDatabase> _pumpAppWithMemoryDb(
   WidgetTester tester, {
   ApiClient? apiClient,
   SecureStorageService? secureStorage,
+  BiometricAuthService? biometricService,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   final storage = secureStorage ?? _InMemorySecureStorage();
+  final biometric = biometricService ?? _StubBiometricAuthService();
   final container = ProviderContainer(
     overrides: [
       appDatabaseProvider.overrideWithValue(db),
       secureStorageServiceProvider.overrideWithValue(storage),
+      biometricAuthServiceProvider.overrideWithValue(biometric),
       if (apiClient != null) apiClientProvider.overrideWithValue(apiClient),
       backendHealthProvider.overrideWith(
         (ref) async => {
@@ -674,14 +701,13 @@ Hasil pembacaan nota:
         expect(find.byType(AuthScreen), findsOneWidget);
 
         // 1. Register Tab: Email + Password + Confirm + 6-digit Email OTP (no Nama Lengkap)
-        await tester.tap(
-          find.descendant(
-            of: find.byType(AuthScreen),
-            matching: find.text('Daftar'),
-          ),
-        );
+        final goRegisterBtn = find.text('Daftar Akun Baru');
+        await tester.ensureVisible(goRegisterBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(goRegisterBtn);
         await tester.pumpAndSettle();
         expect(find.text('Nama Lengkap'), findsNothing);
+        expect(find.text('Mulai Kelola Finansial Anda'), findsOneWidget);
 
         await tester.enterText(
           find.widgetWithText(TextFormField, 'Email'),
@@ -691,10 +717,15 @@ Hasil pembacaan nota:
           find.widgetWithText(TextFormField, 'Kata Sandi'),
           'PassBaru123!',
         );
+        await tester.pumpAndSettle();
+        expect(find.text('Kekuatan Sandi'), findsOneWidget);
+
         await tester.enterText(
           find.widgetWithText(TextFormField, 'Konfirmasi Kata Sandi'),
           'PassBaru123!',
         );
+        await tester.pumpAndSettle();
+        expect(find.text('Kata sandi cocok'), findsOneWidget);
 
         final sendOtpBtn = find.text('Kirim OTP');
         await tester.ensureVisible(sendOtpBtn);
@@ -712,7 +743,13 @@ Hasil pembacaan nota:
           find.widgetWithText(TextFormField, 'Kode OTP Email (6 digit)'),
           '654321',
         );
-        final registerBtn = find.text('Daftar Akun');
+        final termsCheckbox = find.byKey(const Key('register_terms_checkbox'));
+        await tester.ensureVisible(termsCheckbox);
+        await tester.pumpAndSettle();
+        await tester.tap(termsCheckbox);
+        await tester.pumpAndSettle();
+
+        final registerBtn = find.text('Daftar Akun Sekarang');
         await tester.ensureVisible(registerBtn);
         await tester.pumpAndSettle();
         await tester.tap(registerBtn);
@@ -729,7 +766,7 @@ Hasil pembacaan nota:
         await tester.pumpAndSettle();
 
         // 2. Forgot Password 3-step flow: Email -> OTP -> New Password
-        final forgotLink = find.text('Lupa kata sandi?');
+        final forgotLink = find.text('Lupa Password?');
         await tester.ensureVisible(forgotLink);
         await tester.pumpAndSettle();
         await tester.tap(forgotLink);
@@ -743,7 +780,10 @@ Hasil pembacaan nota:
           find.widgetWithText(TextFormField, 'Email'),
           'budi@example.com',
         );
-        final sendResetOtpBtn = find.text('Kirim Kode OTP');
+        await tester.pumpAndSettle();
+        expect(find.text('Format Valid'), findsOneWidget);
+
+        final sendResetOtpBtn = find.text('Kirim Kode Verifikasi (OTP)');
         await tester.ensureVisible(sendResetOtpBtn);
         await tester.pumpAndSettle();
         await tester.tap(sendResetOtpBtn);
@@ -753,7 +793,7 @@ Hasil pembacaan nota:
         expect(find.text('Email Tujuan OTP'), findsOneWidget);
 
         await tester.enterText(
-          find.widgetWithText(TextFormField, 'Kode OTP Email (6 digit)'),
+          find.byKey(const Key('forgot_otp_field')),
           '112233',
         );
         final verifyOtpBtn = find.text('Verifikasi Kode OTP');
@@ -786,10 +826,10 @@ Hasil pembacaan nota:
 
         // 3. Returned automatically to Login tab -> sign in with new password
         await tester.enterText(
-          find.widgetWithText(TextFormField, 'Kata Sandi'),
+          find.byKey(const Key('auth_password_field')),
           'PassBaru999!',
         );
-        final loginBtn = find.widgetWithText(FilledButton, 'Masuk');
+        final loginBtn = find.text('Masuk Sekarang');
         await tester.ensureVisible(loginBtn);
         await tester.pumpAndSettle();
         await tester.tap(loginBtn);
@@ -799,10 +839,205 @@ Hasil pembacaan nota:
         expect(find.text('Akun Cloud Terhubung'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'Biometric quick login requires first-time email+password, activates in Settings, and locks app on reopen',
+      timeout: const Timeout(Duration(seconds: 30)),
+      (tester) async {
+        final db = AppDatabase(NativeDatabase.memory());
+        final storage = _InMemorySecureStorage();
+        final biometricStub = _StubBiometricAuthService();
+        final authAdapter = _StubAuthAdapter();
+        const env = EnvConfig(
+          environment: AppEnvironment.prod,
+          apiBaseUrl: EnvConfig.productionBaseUrl,
+        );
+        final mockDio = Dio(
+          BaseOptions(
+            baseUrl: env.apiBaseUrl,
+            headers: const {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+          ),
+        )..httpClientAdapter = authAdapter;
+        final stubApiClient = ApiClient(
+          envConfig: env,
+          secureStorage: storage,
+          dio: mockDio,
+        );
+
+        ProviderContainer makeContainer() {
+          return ProviderContainer(
+            overrides: [
+              appDatabaseProvider.overrideWithValue(db),
+              secureStorageServiceProvider.overrideWithValue(storage),
+              biometricAuthServiceProvider.overrideWithValue(biometricStub),
+              apiClientProvider.overrideWithValue(stubApiClient),
+              backendHealthProvider.overrideWith(
+                (ref) async => {
+                  'status': 'ok',
+                  'version': 'v1',
+                  'database': 'connected',
+                },
+              ),
+            ],
+          );
+        }
+
+        var activeContainer = makeContainer();
+        addTearDown(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 50));
+          activeContainer.dispose();
+          await tester.runAsync(() => db.close());
+          await tester.pump(const Duration(milliseconds: 50));
+        });
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: activeContainer,
+            child: const PersonalFinanceApp(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // First-time user cannot enable fingerprint in Settings before login
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+
+        final bioSwitchBeforeLogin = tester.widget<SwitchListTile>(
+          find.byKey(const Key('biometric_toggle_switch')),
+        );
+        expect(bioSwitchBeforeLogin.onChanged, isNull);
+
+        await tester.tap(find.text('Masuk atau Daftar Akun Cloud'));
+        await tester.pumpAndSettle();
+
+        // Tapping fingerprint on first-time login must show guidance and not unlock
+        final firstBioBtn = find.byKey(const Key('biometric_login_button'));
+        await tester.ensureVisible(firstBioBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(firstBioBtn);
+        await tester.pumpAndSettle();
+        expect(biometricStub.authenticateCalls, 0);
+        expect(
+          find.textContaining('masuk pertama kali wajib menggunakan email'),
+          findsOneWidget,
+        );
+
+        // Log in with Email + Password
+        await tester.enterText(
+          find.byKey(const Key('auth_email_field')),
+          'budi@example.com',
+        );
+        await tester.enterText(
+          find.byKey(const Key('auth_password_field')),
+          'PassBaru999!',
+        );
+        final loginBtn = find.text('Masuk Sekarang');
+        await tester.ensureVisible(loginBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(loginBtn);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Akun Cloud Terhubung'), findsOneWidget);
+
+        // Activate fingerprint login in Settings
+        final bioSwitch = find.byKey(const Key('biometric_toggle_switch'));
+        await tester.ensureVisible(bioSwitch);
+        await tester.pumpAndSettle();
+        await tester.tap(bioSwitch);
+        await tester.pumpAndSettle();
+
+        expect(biometricStub.authenticateCalls, 1);
+        expect(
+          find.textContaining('Aktif • Gunakan sidik jari'),
+          findsOneWidget,
+        );
+
+        // Simulate closing & reopening the app (fresh ProviderContainer)
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        activeContainer.dispose();
+
+        activeContainer = makeContainer();
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: activeContainer,
+            child: const PersonalFinanceApp(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // App must be locked on Stitch Login with saved email prefilled
+        expect(find.text('TOTAL SALDO AKTIF (1 REKENING)'), findsNothing);
+        expect(find.byType(AuthScreen), findsOneWidget);
+        expect(find.text('Akses Terkunci'), findsOneWidget);
+        expect(
+          tester
+              .widget<TextFormField>(find.byKey(const Key('auth_email_field')))
+              .controller
+              ?.text,
+          'budi@example.com',
+        );
+
+        // Unlock using Fingerprint
+        final lockBioBtn = find.byKey(const Key('biometric_login_button'));
+        await tester.ensureVisible(lockBioBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(lockBioBtn);
+        await tester.pumpAndSettle();
+
+        expect(biometricStub.authenticateCalls, 2);
+        expect(find.byType(AuthScreen), findsNothing);
+        expect(find.textContaining('TOTAL SALDO AKTIF'), findsOneWidget);
+
+        // Manual lock from Settings -> test offline password unlock fallback
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+        final lockNowTile = find.text('Kunci Aplikasi Sekarang');
+        await tester.ensureVisible(lockNowTile);
+        await tester.pumpAndSettle();
+        await tester.tap(lockNowTile);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AuthScreen), findsOneWidget);
+        authAdapter.simulateOffline = true;
+
+        // Wrong offline password must be rejected
+        await tester.enterText(
+          find.byKey(const Key('auth_password_field')),
+          'SalahPassword123',
+        );
+        final unlockBtn = find.text('Masuk Sekarang');
+        await tester.ensureVisible(unlockBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(unlockBtn);
+        await tester.pumpAndSettle();
+        expect(find.textContaining('Kata sandi salah'), findsOneWidget);
+        expect(find.byType(AuthScreen), findsOneWidget);
+
+        // Correct password unlocks even offline via salted verifier
+        await tester.enterText(
+          find.byKey(const Key('auth_password_field')),
+          'PassBaru999!',
+        );
+        await tester.ensureVisible(unlockBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(unlockBtn);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AuthScreen), findsNothing);
+        expect(find.text('Akun Cloud Terhubung'), findsOneWidget);
+      },
+    );
   });
 }
 
 class _StubAuthAdapter implements HttpClientAdapter {
+  bool simulateOffline = false;
   String? sentRegisterOtpEmail;
   String? registeredOtpCode;
   String? sentResetOtpEmail;
@@ -819,6 +1054,13 @@ class _StubAuthAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    if (simulateOffline) {
+      throw DioException(
+        requestOptions: options,
+        type: DioExceptionType.connectionError,
+        message: 'Simulated offline network outage',
+      );
+    }
     final path = options.uri.path;
     final body = options.data is Map
         ? Map<String, dynamic>.from(options.data as Map)

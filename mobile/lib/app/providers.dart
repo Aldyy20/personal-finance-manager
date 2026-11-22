@@ -6,6 +6,7 @@ import '../core/config/env_config.dart';
 import '../core/database/app_database.dart';
 import '../core/database/local_ledger_service.dart';
 import '../core/network/api_client.dart';
+import '../core/security/biometric_auth_service.dart';
 import '../core/security/secure_storage_service.dart';
 import '../core/sync/sync_manager.dart';
 import '../core/sync/sync_status.dart';
@@ -26,6 +27,10 @@ final envConfigProvider = Provider<EnvConfig>((ref) {
 
 final secureStorageServiceProvider = Provider<SecureStorageService>((ref) {
   return SecureStorageService();
+});
+
+final biometricAuthServiceProvider = Provider<BiometricAuthService>((ref) {
+  return BiometricAuthService();
 });
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
@@ -118,6 +123,27 @@ final receiptRepositoryProvider = Provider<ReceiptRepository>((ref) {
 final themeModeProvider = StateProvider<ThemeMode>((ref) {
   return ThemeMode.system;
 });
+
+final appUnlockedProvider = StateProvider<bool>((ref) => false);
+
+final biometricPromptActiveProvider = StateProvider<bool>((ref) => false);
+
+class BiometricPreferenceNotifier extends AsyncNotifier<bool> {
+  @override
+  Future<bool> build() async {
+    return ref.read(secureStorageServiceProvider).isBiometricEnabled();
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    await ref.read(secureStorageServiceProvider).saveBiometricEnabled(enabled);
+    state = AsyncData(enabled);
+  }
+}
+
+final biometricEnabledProvider =
+    AsyncNotifierProvider<BiometricPreferenceNotifier, bool>(
+  BiometricPreferenceNotifier.new,
+);
 
 final activeSessionProvider =
     AsyncNotifierProvider<SessionController, ActiveWorkspaceSession>(

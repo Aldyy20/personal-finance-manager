@@ -27,3 +27,7 @@
 -dontwarn com.google.mlkit.vision.text.japanese.**
 -dontwarn com.google.mlkit.vision.text.korean.**
 
+# Keep AndroidX BiometricPrompt & local_auth classes
+-keep class androidx.biometric.** { *; }
+-keep class io.flutter.plugins.localauth.** { *; }
+

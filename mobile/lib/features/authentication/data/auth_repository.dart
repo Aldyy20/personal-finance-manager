@@ -104,6 +104,7 @@ class AuthRepository {
         'password_confirmation': passwordConfirmation,
       },
     );
+    await secureStorage.clearLocalPasswordVerifier();
   }
 
   Future<AuthSession> register({
@@ -141,7 +142,16 @@ class AuthRepository {
     );
 
     final data = res.data!;
-    return _persistAuthenticatedSession(data, deviceId, pullInitialData: pullInitialData);
+    final session = await _persistAuthenticatedSession(
+      data,
+      deviceId,
+      pullInitialData: pullInitialData,
+    );
+    await secureStorage.saveLocalPasswordVerifier(
+      email: session.email,
+      password: password,
+    );
+    return session;
   }
 
   Future<AuthSession> login({
@@ -168,7 +178,26 @@ class AuthRepository {
     );
 
     final data = res.data!;
-    return _persistAuthenticatedSession(data, deviceId, pullInitialData: pullInitialData);
+    final session = await _persistAuthenticatedSession(
+      data,
+      deviceId,
+      pullInitialData: pullInitialData,
+    );
+    await secureStorage.saveLocalPasswordVerifier(
+      email: session.email,
+      password: password,
+    );
+    return session;
+  }
+
+  Future<bool> verifyOfflinePassword({
+    required String email,
+    required String password,
+  }) {
+    return secureStorage.verifyLocalPassword(
+      email: email,
+      password: password,
+    );
   }
 
   Future<void> logout() async {
@@ -178,6 +207,11 @@ class AuthRepository {
       // Allow local logout even while offline
     }
     await secureStorage.clearSession();
+    await secureStorage.saveBiometricEnabled(false);
+    await secureStorage.clearLocalPasswordVerifier();
+    if (!await secureStorage.isRememberEmailEnabled()) {
+      await secureStorage.clearLastEmail();
+    }
   }
 
   Future<AuthSession?> getOfflineSession() async {

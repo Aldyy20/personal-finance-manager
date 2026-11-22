@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../../core/errors/app_exception.dart';
 
 class ActiveWorkspaceSession {
   const ActiveWorkspaceSession({
@@ -64,9 +65,13 @@ class SessionController extends AsyncNotifier<ActiveWorkspaceSession> {
   Future<void> login({
     required String email,
     required String password,
+    bool rememberEmail = true,
   }) async {
     final authRepo = ref.read(authRepositoryProvider);
     final db = ref.read(appDatabaseProvider);
+    final secureStorage = ref.read(secureStorageServiceProvider);
+
+    await secureStorage.saveRememberEmail(rememberEmail);
     final authSession = await authRepo.login(
       email: email,
       password: password,
@@ -76,6 +81,7 @@ class SessionController extends AsyncNotifier<ActiveWorkspaceSession> {
           ..where((t) => t.id.equals(authSession.userId)))
         .getSingleOrNull();
 
+    ref.read(appUnlockedProvider.notifier).state = true;
     state = AsyncData(
       ActiveWorkspaceSession(
         userId: authSession.userId,
@@ -97,6 +103,7 @@ class SessionController extends AsyncNotifier<ActiveWorkspaceSession> {
   }) async {
     final authRepo = ref.read(authRepositoryProvider);
     final db = ref.read(appDatabaseProvider);
+    await ref.read(secureStorageServiceProvider).saveRememberEmail(true);
     final authSession = await authRepo.register(
       name: name,
       email: email,
@@ -109,6 +116,7 @@ class SessionController extends AsyncNotifier<ActiveWorkspaceSession> {
           ..where((t) => t.id.equals(authSession.userId)))
         .getSingleOrNull();
 
+    ref.read(appUnlockedProvider.notifier).state = true;
     state = AsyncData(
       ActiveWorkspaceSession(
         userId: authSession.userId,
@@ -124,9 +132,73 @@ class SessionController extends AsyncNotifier<ActiveWorkspaceSession> {
     await ref.read(syncStatusProvider.notifier).refreshLocalState();
   }
 
+  Future<void> unlockWithPassword({
+    required String email,
+    required String password,
+    bool rememberEmail = true,
+  }) async {
+    try {
+      await login(
+        email: email,
+        password: password,
+        rememberEmail: rememberEmail,
+      );
+      return;
+    } on NetworkException {
+      final current = state.valueOrNull;
+      if (current != null &&
+          current.isCloudAuthenticated &&
+          current.email.trim().toLowerCase() == email.trim().toLowerCase()) {
+        final valid = await ref
+            .read(authRepositoryProvider)
+            .verifyOfflinePassword(email: email, password: password);
+        if (valid) {
+          await ref
+              .read(secureStorageServiceProvider)
+              .saveRememberEmail(rememberEmail);
+          ref.read(appUnlockedProvider.notifier).state = true;
+          return;
+        }
+        throw const UnauthorizedException(
+          message: 'Kata sandi salah. Periksa kembali kata sandi Anda.',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<bool> unlockWithBiometric() async {
+    final current = state.valueOrNull;
+    if (current == null || !current.isCloudAuthenticated) {
+      return false;
+    }
+
+    final enabled =
+        await ref.read(secureStorageServiceProvider).isBiometricEnabled();
+    if (!enabled) {
+      return false;
+    }
+
+    ref.read(biometricPromptActiveProvider.notifier).state = true;
+    try {
+      final ok = await ref.read(biometricAuthServiceProvider).authenticate(
+            reason:
+                'Verifikasi sidik jari untuk membuka Personal Finance Manager',
+          );
+      if (ok) {
+        ref.read(appUnlockedProvider.notifier).state = true;
+      }
+      return ok;
+    } finally {
+      ref.read(biometricPromptActiveProvider.notifier).state = false;
+    }
+  }
+
   Future<void> logout() async {
     final authRepo = ref.read(authRepositoryProvider);
     await authRepo.logout();
+    await ref.read(biometricEnabledProvider.notifier).setEnabled(false);
+    ref.read(appUnlockedProvider.notifier).state = false;
     state = const AsyncLoading();
     state = AsyncData(await _loadSession());
     await ref.read(syncStatusProvider.notifier).refreshLocalState();
