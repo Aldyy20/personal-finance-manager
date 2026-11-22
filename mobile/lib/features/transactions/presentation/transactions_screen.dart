@@ -1778,7 +1778,7 @@ class _OfflineSqliteBanner extends StatelessWidget {
                 ),
                 children: [
                   TextSpan(
-                    text: 'Database Lokal SQLite Aktif',
+                    text: 'Data Tersimpan Aman',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       color: colorScheme.onSurface,
@@ -1786,7 +1786,7 @@ class _OfflineSqliteBanner extends StatelessWidget {
                   ),
                   TextSpan(
                     text:
-                        ' • $count transaksi tersimpan aman & siap sinkron cloud.',
+                        ' • $count transaksi tersimpan di perangkat.',
                   ),
                 ],
               ),

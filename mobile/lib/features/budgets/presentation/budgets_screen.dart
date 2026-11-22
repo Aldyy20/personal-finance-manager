@@ -946,7 +946,7 @@ class _BudgetsScreenState extends ConsumerState<BudgetsScreen> {
                       const SizedBox(width: 7),
                       Flexible(
                         child: Text(
-                          'Tersinkronisasi otomatis dengan SQLite lokal',
+                          'Data anggaran tersimpan otomatis di perangkat',
                           style: textTheme.labelSmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -2681,23 +2681,6 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
                           ),
                         ],
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: innerBg,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: borderColor),
-                        ),
-                        child: Text(
-                          'PRD 5.9 Rule',
-                          style: textTheme.labelSmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.sm),
@@ -3028,28 +3011,17 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.crisis_alert_rounded,
-                            size: 19,
-                            color: financialColors.warning,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Parameter Peringatan Ambang Batas',
-                            style: textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
+                      Icon(
+                        Icons.crisis_alert_rounded,
+                        size: 19,
+                        color: financialColors.warning,
                       ),
+                      const SizedBox(width: 6),
                       Text(
-                        'PRD 5.9',
-                        style: textTheme.labelSmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
+                        'Parameter Peringatan Ambang Batas',
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
@@ -3133,7 +3105,7 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
                               ),
                             ),
                             Text(
-                              '80% (Standar PRD)',
+                              '80% (Disarankan)',
                               style: textTheme.labelSmall?.copyWith(
                                 color: financialColors.brandBlueLight,
                                 fontWeight: FontWeight.w700,
@@ -3328,7 +3300,7 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
                         const SizedBox(width: 5),
                         Flexible(
                           child: Text(
-                            'Pencatatan transaksi otomatis terhubung ke kuota ini via SQLite lokal.',
+                            'Setiap transaksi pengeluaran otomatis terhubung ke kuota anggaran ini.',
                             textAlign: TextAlign.center,
                             style: textTheme.labelSmall?.copyWith(
                               color: colorScheme.onSurfaceVariant,

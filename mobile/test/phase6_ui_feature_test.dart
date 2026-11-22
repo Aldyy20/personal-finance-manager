@@ -337,9 +337,9 @@ void main() {
           find.widgetWithText(TextFormField, 'Alasan Perubahan (Audit Revisi)'),
           'Tambah minum',
         );
-        await tester.ensureVisible(find.text('Simpan Revisi (Reversal & Replace)'));
+        await tester.ensureVisible(find.text('Simpan Perubahan'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Simpan Revisi (Reversal & Replace)'));
+        await tester.tap(find.text('Simpan Perubahan'));
         await tester.pumpAndSettle();
 
         expect(find.text('POSTED • v2'), findsOneWidget);
@@ -387,7 +387,22 @@ void main() {
         await tester.tap(find.text('Scan Struk'));
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Struk Minimarket'));
+        await tester.tap(find.text('Ambil Ulang'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Input Teks Struk Manual'));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Nama File Struk (Kamera/Galeri)'),
+          'struk_minimarket.jpg',
+        );
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Teks Hasil OCR Struk'),
+          'INDOMARET SUDIRMAN\n21/11/2026\nAir Mineral 4.500\nTOTAL Rp 35.000',
+        );
+        await tester.ensureVisible(find.text('Ekstrak & Deteksi Nominal OCR'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Ekstrak & Deteksi Nominal OCR'));
         await tester.pumpAndSettle();
 
         expect(find.text('INDOMARET SUDIRMAN'), findsWidgets);

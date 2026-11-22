@@ -115,8 +115,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           final syncLabel = isSyncedOnline
               ? 'TERSINKRON (CLOUD & LOKAL)'
               : (!session.isCloudAuthenticated
-                  ? 'MODE OFFLINE AMAN • LOKAL SQLITE'
-                  : 'ANTREAN SYNC: $pendingCount DATA');
+                  ? 'DATA TERSIMPAN AMAN DI PERANGKAT'
+                  : 'MENUNGGU SINKRON: $pendingCount DATA');
           final syncDotColor = isSyncedOnline
               ? financialColors.income
               : (pendingCount > 0

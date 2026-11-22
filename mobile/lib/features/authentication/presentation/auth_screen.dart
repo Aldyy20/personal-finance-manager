@@ -106,7 +106,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
-    final env = ref.watch(envConfigProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -144,7 +143,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           ),
                           const SizedBox(height: AppSpacing.md),
                           Text(
-                            'Masuk atau daftar untuk mencadangkan buku kas Anda ke server ${env.apiBaseUrl} dan sinkronisasi lintas perangkat.',
+                            'Masuk atau daftar untuk mencadangkan catatan keuangan Anda ke cloud dan sinkronisasi lintas perangkat.',
                             style: textTheme.bodyMedium?.copyWith(
                               color: const Color(0xFFFFFFFF).withValues(alpha: 0.85),
                             ),

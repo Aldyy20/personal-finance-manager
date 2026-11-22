@@ -1,16 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../app/providers.dart';
-import '../../../core/config/env_config.dart';
-import '../../../core/database/app_database.dart';
 import '../../../core/theme/design_tokens.dart';
 import '../../../core/theme/financial_colors.dart';
 import '../../../core/widgets/finance_widgets.dart';
 import '../../authentication/application/session_controller.dart';
-import '../../receipt_scanner/presentation/ai_vision_keys_dialog.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -68,92 +64,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  void _showOutboxSheet(BuildContext context, ActiveWorkspaceSession session) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => Consumer(
-        builder: (context, ref, _) {
-          final entriesAsync = ref.watch(outboxEntriesProvider);
-          final textTheme = Theme.of(context).textTheme;
-          final colorScheme = Theme.of(context).colorScheme;
-
-          return DraggableScrollableSheet(
-            initialChildSize: 0.72,
-            minChildSize: 0.45,
-            maxChildSize: 0.92,
-            expand: false,
-            builder: (context, scrollController) => ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Antrean Sync & Info Perangkat',
-                        style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      tooltip: 'Tutup',
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.smartphone_outlined),
-                    title: const Text('Device ID Terdaftar'),
-                    subtitle: Text(session.deviceId),
-                    trailing: Text(
-                      session.isCloudAuthenticated ? 'Cloud Aktif' : 'Lokal',
-                      style: textTheme.labelMedium?.copyWith(color: colorScheme.primary),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                const SectionHeader(
-                  title: 'Riwayat Sync Outbox (Maks. 50)',
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                entriesAsync.when(
-                  loading: () => const LoadingStateView(),
-                  error: (e, _) => ErrorStateView(message: e.toString()),
-                  data: (entries) {
-                    if (entries.isEmpty) {
-                      return const Card(
-                        child: EmptyStateView(
-                          icon: Icons.check_circle_outline,
-                          title: 'Antrean Outbox Bersih',
-                          message:
-                              'Tidak ada mutasi lokal yang tercatat di outbox saat ini.',
-                        ),
-                      );
-                    }
-                    return Card(
-                      child: Column(
-                        children: [
-                          for (var i = 0; i < entries.length; i++) ...[
-                            if (i > 0) const Divider(),
-                            _OutboxRow(entry: entries[i]),
-                          ],
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
@@ -165,9 +75,6 @@ class SettingsScreen extends ConsumerWidget {
     final syncInfo = ref.watch(syncStatusProvider);
     final pendingCount =
         ref.watch(pendingOutboxCountProvider).valueOrNull ?? syncInfo.pendingCount;
-    final localDbAsync = ref.watch(localDbHealthProvider);
-    final backendAsync = ref.watch(backendHealthProvider);
-    final env = ref.watch(envConfigProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -300,8 +207,8 @@ class SettingsScreen extends ConsumerWidget {
                                   const SizedBox(width: 5),
                                   Text(
                                     session.isCloudAuthenticated
-                                        ? 'Cloud Terhubung (Laravel Sanctum)'
-                                        : 'Mode Lokal Offline',
+                                        ? 'Akun Cloud Terhubung'
+                                        : 'Mode Perangkat Lokal',
                                     style: textTheme.labelSmall?.copyWith(
                                       color: const Color(0xFFD6E3FF),
                                       fontWeight: FontWeight.w600,
@@ -366,8 +273,8 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // 2. Seksi Sinkronisasi & Offline Data + 3-Col SQLite Metric Grid
-            const SectionHeader(title: 'Sinkronisasi & Offline Data'),
+            // 2. Seksi Sinkronisasi & Cadangan Data
+            const SectionHeader(title: 'Sinkronisasi & Cadangan Data'),
             const SizedBox(height: AppSpacing.sm),
             SyncStatusBanner(
               syncInfo: syncInfo,
@@ -396,42 +303,32 @@ class SettingsScreen extends ConsumerWidget {
                 Expanded(
                   child: _MetricMiniCard(
                     title: 'Penyimpanan',
-                    value: 'SQLite Local',
-                    caption: 'Drift Engine',
+                    value: 'Lokal Aman',
+                    caption: 'Di Perangkat',
                     valueColor: colorScheme.primary,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: _MetricMiniCard(
-                    title: 'Status DB',
-                    value: localDbAsync.valueOrNull == true ? 'Terenkripsi' : 'Memeriksa',
-                    caption: 'Offline-First',
+                    title: 'Keamanan',
+                    value: 'Terenkripsi',
+                    caption: 'Privasi Terjaga',
                     valueColor: financialColors.income,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: _MetricMiniCard(
-                    title: 'Outbox Pending',
-                    value: '$pendingCount Antrean',
-                    caption: 'Siap kirim',
+                    title: 'Antrean Sync',
+                    value: '$pendingCount Data',
+                    caption: pendingCount > 0 ? 'Menunggu' : 'Tersinkron',
                     valueColor: pendingCount > 0
                         ? financialColors.warning
                         : financialColors.income,
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.devices_outlined),
-                title: const Text('Detail Outbox & Info Perangkat'),
-                subtitle: Text('Pending: $pendingCount • Cursor: #${syncInfo.lastCursor}'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showOutboxSheet(context, session),
-              ),
             ),
             const SizedBox(height: AppSpacing.xl),
 
@@ -499,15 +396,13 @@ class SettingsScreen extends ConsumerWidget {
                   const Divider(),
                   ListTile(
                     leading: const Icon(Icons.document_scanner_outlined),
-                    title: const Text('Pemindai Struk OCR'),
+                    title: const Text('Pemindai Struk Cerdas'),
                     subtitle: const Text(
-                      'Ekstrak foto struk dengan AI Vision & OCR ke transaksi',
+                      'Pindai foto struk belanja otomatis menjadi transaksi',
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => context.push('/receipt-scanner'),
                   ),
-                  const Divider(),
-                  const _AiVisionSettingsTile(),
                 ],
               ),
             ),
@@ -595,57 +490,29 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // 5. Diagnostik Sistem & Tentang Aplikasi
-            const SectionHeader(title: 'Diagnostik & Tentang Aplikasi'),
+            // 5. Tentang Aplikasi
+            const SectionHeader(title: 'Tentang Aplikasi'),
             const SizedBox(height: AppSpacing.sm),
             Card(
               child: Column(
                 children: [
-                  ListTile(
-                    leading: const AppLogoBadge(size: 38, borderRadius: 10),
-                    title: const Text('Personal Finance Manager'),
-                    subtitle: Text('Backend: ${EnvConfig.productionDomain}'),
-                  ),
-                  const Divider(),
-                  ListTile(
-                    leading: const Icon(Icons.storage_outlined),
-                    title: const Text('Database Lokal SQLite (Drift)'),
-                    subtitle: localDbAsync.when(
-                      data: (ok) => Text(ok ? 'Terhubung (SELECT 1 OK)' : 'Terputus'),
-                      loading: () => const Text('Memeriksa database lokal...'),
-                      error: (err, _) => Text('Error: $err'),
-                    ),
-                  ),
-                  const Divider(),
-                  ListTile(
-                    leading: const Icon(Icons.cloud_outlined),
-                    title: Text('Server API (${env.environment.name.toUpperCase()})'),
-                    subtitle: backendAsync.when(
-                      data: (data) => Text(
-                        'Status: ${data["status"]} | DB: ${data["database"]} | Ver: ${data["version"]}',
-                      ),
-                      loading: () => const Text('Memeriksa koneksi backend...'),
-                      error: (_, _) =>
-                          Text('Offline / Tidak terjangkau (${env.apiBaseUrl})'),
-                    ),
-                    trailing: IconButton(
-                      tooltip: 'Periksa Ulang Backend',
-                      onPressed: () => ref.invalidate(backendHealthProvider),
-                      icon: const Icon(Icons.refresh),
-                    ),
+                  const ListTile(
+                    leading: AppLogoBadge(size: 38, borderRadius: 10),
+                    title: Text('Personal Finance Manager'),
+                    subtitle: Text('Pengelola Keuangan Pribadi'),
                   ),
                   const Divider(),
                   const ListTile(
                     leading: Icon(Icons.verified_user_outlined),
                     title: Text('Kebijakan Privasi & Enkripsi Data'),
-                    subtitle: Text('Standar AES-256 Cloud & Local DB'),
+                    subtitle: Text('Data tersimpan aman dan terenkripsi'),
                   ),
                   const Divider(),
                   ListTile(
-                    leading: const Icon(Icons.terminal_rounded),
+                    leading: const Icon(Icons.info_outline_rounded),
                     title: const Text('Versi Aplikasi'),
                     trailing: Text(
-                      'v1.0.0 (Build 2026.11)',
+                      'v1.0.0',
                       style: FinancialTypography.tabular(textTheme.labelMedium!).copyWith(
                         color: colorScheme.primary,
                         fontWeight: FontWeight.w700,
@@ -717,98 +584,6 @@ class _MetricMiniCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _OutboxRow extends StatelessWidget {
-  const _OutboxRow({required this.entry});
-
-  final SyncOutboxData entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final financialColors = Theme.of(context).extension<FinancialColors>()!;
-    final colorScheme = Theme.of(context).colorScheme;
-    final dt =
-        DateTime.fromMillisecondsSinceEpoch(entry.updatedAtMs, isUtc: true).toLocal();
-    final color = switch (entry.status) {
-      'synced' => financialColors.income,
-      'failed' => colorScheme.error,
-      _ => financialColors.warning,
-    };
-
-    return ListTile(
-      leading: Icon(
-        switch (entry.status) {
-          'synced' => Icons.cloud_done_outlined,
-          'failed' => Icons.error_outline,
-          _ => Icons.schedule,
-        },
-        color: color,
-      ),
-      title: Text('${entry.entityType} • ${entry.operationType.toUpperCase()}'),
-      subtitle: Text(
-        '${DateFormat('dd MMM HH:mm:ss').format(dt)} • Percobaan ${entry.retryCount}'
-        '${entry.lastError != null ? '\n${entry.lastError}' : ''}',
-      ),
-      trailing: Text(
-        entry.status.toUpperCase(),
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
-      ),
-    );
-  }
-}
-
-class _AiVisionSettingsTile extends ConsumerStatefulWidget {
-  const _AiVisionSettingsTile();
-
-  @override
-  ConsumerState<_AiVisionSettingsTile> createState() =>
-      _AiVisionSettingsTileState();
-}
-
-class _AiVisionSettingsTileState extends ConsumerState<_AiVisionSettingsTile> {
-  late Future<({bool hasGeminiKey, bool hasGroqKey})> _statusFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadStatus();
-  }
-
-  void _loadStatus() {
-    _statusFuture =
-        ref.read(aiReceiptVisionServiceProvider).getConfiguredKeyStatus();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<({bool hasGeminiKey, bool hasGroqKey})>(
-      future: _statusFuture,
-      builder: (context, snapshot) {
-        final hasGemini = snapshot.data?.hasGeminiKey ?? false;
-        final hasGroq = snapshot.data?.hasGroqKey ?? false;
-        final subtitle = (hasGemini || hasGroq)
-            ? 'Gemini: ${hasGemini ? 'Aktif' : 'Belum'} • Groq Fallback: ${hasGroq ? 'Aktif' : 'Belum'}'
-            : 'Atur API Key gratis Google AI Studio & Groq';
-
-        return ListTile(
-          leading: const Icon(Icons.auto_awesome_outlined),
-          title: const Text('AI Vision Struk (Gemini + Groq)'),
-          subtitle: Text(subtitle),
-          trailing: const Icon(Icons.key_rounded),
-          onTap: () async {
-            final updated = await showConfigureAiVisionKeysDialog(context, ref);
-            if (updated && mounted) {
-              setState(_loadStatus);
-            }
-          },
-        );
-      },
     );
   }
 }

@@ -800,7 +800,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
-                            'Tersinkronisasi dengan SQLite lokal • ${allCategories.length} Kategori',
+                            '${allCategories.length} Kategori tersimpan aman di perangkat',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: textTheme.labelMedium?.copyWith(
@@ -1070,27 +1070,15 @@ class _PrdCategoryHintBanner extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Text(
-                                'ATURAN SISTEM',
-                                style: textTheme.labelSmall?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.6,
-                                  color: isDark
-                                      ? const Color(0xFFB6C4FF)
-                                      : const Color(0xFF0054CC),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '• PRD 5.3',
-                                style: textTheme.labelSmall?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
+                          Text(
+                            'INFO KATEGORI',
+                            style: textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.6,
+                              color: isDark
+                                  ? const Color(0xFFB6C4FF)
+                                  : const Color(0xFF0054CC),
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -1591,7 +1579,7 @@ class _CategoryFormSheetState extends ConsumerState<CategoryFormSheet> {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Panduan Kategori (PRD 5.3)'),
+        title: const Text('Panduan Kategori'),
         content: const Text(
           '• Pilih Pengeluaran atau Pemasukan agar kategori muncul di formulir yang tepat.\n'
           '• Warna dan ikon membantu identifikasi cepat di Riwayat Transaksi, Anggaran, dan Grafik Laporan.\n'
@@ -1652,7 +1640,7 @@ class _CategoryFormSheetState extends ConsumerState<CategoryFormSheet> {
         SnackBar(
           content: Text(
             widget.existing == null
-                ? 'Kategori "$name" disimpan ke database lokal SQLite.'
+                ? 'Kategori "$name" berhasil disimpan.'
                 : 'Kategori "$name" diperbarui.',
           ),
         ),
@@ -2401,7 +2389,7 @@ class _CategoryFormSheetState extends ConsumerState<CategoryFormSheet> {
                                   ),
                                 ),
                                 Text(
-                                  'Tersimpan aman di database SQLite lokal perangkat Anda (Offline-First).',
+                                  'Kategori tersimpan aman di perangkat Anda dan siap digunakan kapan saja.',
                                   style: textTheme.bodySmall?.copyWith(
                                     color: colorScheme.onSurfaceVariant,
                                   ),

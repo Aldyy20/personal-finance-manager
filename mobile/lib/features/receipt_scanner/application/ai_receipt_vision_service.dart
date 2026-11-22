@@ -117,7 +117,7 @@ class AiReceiptVisionService {
         );
         final parsed = parseAiJsonPayload(
           rawPayload,
-          providerLabel: 'AI Gemini Flash Lite',
+          providerLabel: 'Pemindai Cerdas',
           fallbackUsed: false,
         );
         if (parsed != null) {
@@ -145,9 +145,7 @@ class AiReceiptVisionService {
         );
         final parsed = parseAiJsonPayload(
           rawPayload,
-          providerLabel: geminiAttempted
-              ? 'Groq Fallback • Qwen 3.8 Vision'
-              : 'AI Groq • Qwen 3.8 Vision',
+          providerLabel: 'Pemindai Cerdas',
           fallbackUsed: geminiAttempted,
         );
         if (parsed != null) {
@@ -155,9 +153,6 @@ class AiReceiptVisionService {
             result: parsed,
             providerCode: 'groq',
             fallbackUsed: geminiAttempted,
-            diagnosticMessage: geminiAttempted
-                ? 'Gemini sedang penuh/gagal, dialihkan otomatis ke Groq Vision.'
-                : null,
           );
         }
         errors.add('Groq mengembalikan format tidak terbaca');
@@ -199,9 +194,6 @@ class AiReceiptVisionService {
           final backendProvider =
               (data['provider'] ?? 'gemini').toString().toLowerCase();
           final backendFallback = data['fallback_used'] == true;
-          final providerLabel = backendProvider == 'groq'
-              ? 'Server AI • Groq Fallback'
-              : 'Server AI • Gemini Flash';
           final lineItems = (data['line_items'] as List? ?? const [])
               .map((e) => e.toString().trim())
               .where((s) => s.isNotEmpty)
@@ -214,7 +206,7 @@ class AiReceiptVisionService {
             detectedDate: parseDateDynamic(data['detected_date']),
             lineItems: lineItems,
             suggestedCategory: _nullableString(data['suggested_category']),
-            providerLabel: providerLabel,
+            providerLabel: 'Pemindai Cerdas',
             fallbackUsed: backendFallback,
           );
           return AiVisionScanOutcome(
@@ -224,23 +216,18 @@ class AiReceiptVisionService {
           );
         }
       } catch (e) {
-        errors.add('Server AI ($e)');
+        errors.add('Server ($e)');
       }
     }
 
     if (keys.geminiKey.isEmpty && keys.groqKey.isEmpty && !isCloudAuthenticated) {
       return const AiVisionScanOutcome(
         providerCode: 'none',
-        diagnosticMessage:
-            'AI Key Gemini/Groq belum diisi. Pakai OCR Offline atau ketuk "Atur AI Key" untuk akurasi AI Vision gratis.',
       );
     }
 
-    return AiVisionScanOutcome(
+    return const AiVisionScanOutcome(
       providerCode: 'failed',
-      diagnosticMessage: errors.isEmpty
-          ? 'AI Vision belum bisa membaca struk, dialihkan ke OCR Offline.'
-          : 'AI gagal (${errors.join(' • ')}), dialihkan ke OCR Offline.',
     );
   }
 

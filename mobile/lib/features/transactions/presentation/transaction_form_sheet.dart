@@ -454,7 +454,7 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
     final selectedDestination = _findAccount(accounts, _destinationAccountId);
 
     final primaryButtonLabel = isEdit
-        ? 'Simpan Revisi (Reversal & Replace)'
+        ? 'Simpan Perubahan'
         : switch (_type) {
             'income' => 'Simpan Pemasukan',
             'transfer' => 'Konfirmasi & Simpan Transfer',
@@ -531,7 +531,7 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
                       ),
                       Text(
                         isEdit
-                            ? 'Audit revisi aman berbasis jurnal pembalik'
+                            ? 'Perubahan tercatat aman dalam riwayat transaksi'
                             : 'Catat arus kas atau mutasi rekening Anda',
                         style: textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
@@ -693,14 +693,14 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Offline-First Engine',
+                          'Penyimpanan Instan & Aman',
                           style: textTheme.labelLarge?.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Tersimpan instan di SQLite lokal perangkat & otomatis masuk antrean sync cloud saat online.',
+                          'Transaksi langsung tersimpan di perangkat dan otomatis disinkronkan saat terhubung.',
                           style: textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -1605,7 +1605,7 @@ class _TransactionFormSheetState extends ConsumerState<TransactionFormSheet> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  'OCR Google ML Kit',
+                  'Scan Otomatis',
                   style: TextStyle(
                     fontSize: 10.5,
                     fontWeight: FontWeight.w700,

@@ -825,24 +825,24 @@ class SyncStatusBanner extends StatelessWidget {
       icon = Icons.sync;
       accentColor = financialColors.brandBlueLight;
       badgeBg = financialColors.brandBlueLight.withValues(alpha: 0.14);
-      title = 'Menyinkronkan Ledger...';
-      subtitle = 'Mengirim antrean perubahan ke server';
+      title = 'Menyinkronkan Data...';
+      subtitle = 'Menyimpan perubahan terbaru ke cloud';
       actionLabel = 'Proses';
     } else if (syncInfo.status == SyncStateStatus.conflict) {
       icon = Icons.warning_amber_rounded;
       accentColor = financialColors.warning;
       badgeBg = financialColors.warning.withValues(alpha: 0.16);
       title = 'Konflik Sinkronisasi';
-      subtitle = '$pendingCount operasi menunggu penyelesaian';
+      subtitle = '$pendingCount perubahan menunggu penyelesaian';
       actionLabel = 'Sinkronkan';
     } else if (!isCloudAuthenticated) {
       icon = Icons.offline_bolt_rounded;
       accentColor = financialColors.brandBlueLight;
       badgeBg = financialColors.brandBlueLight.withValues(alpha: 0.14);
       title = pendingCount > 0
-          ? 'Mode Lokal • $pendingCount antrean sync'
-          : 'Mode Offline Aktif';
-      subtitle = 'Data tersimpan aman secara lokal di SQLite perangkat';
+          ? 'Mode Lokal • $pendingCount belum dicadangkan'
+          : 'Mode Perangkat Lokal';
+      subtitle = 'Data tersimpan aman di perangkat Anda';
       actionLabel = 'Masuk Cloud';
     } else if (pendingCount > 0 || syncInfo.status == SyncStateStatus.error) {
       icon = Icons.cloud_upload_outlined;
@@ -858,7 +858,7 @@ class SyncStatusBanner extends StatelessWidget {
       title = 'Tersinkron Penuh (Cloud & Lokal)';
       subtitle = syncInfo.lastSyncAt != null
           ? 'Terakhir: ${DateFormat('dd MMM HH:mm').format(syncInfo.lastSyncAt!.toLocal())}'
-          : 'Cursor #${syncInfo.lastCursor} • Ledger konsisten';
+          : 'Semua catatan keuangan sudah terbaru';
       actionLabel = 'Sinkronkan';
     }
 
