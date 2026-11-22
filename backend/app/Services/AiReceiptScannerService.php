@@ -44,12 +44,12 @@ class AiReceiptScannerService
         $prompt = $this->buildExtractionPrompt($categories);
 
         $geminiKey = trim((string) config('services.gemini.key', ''));
-        $geminiModel = trim((string) config('services.gemini.model', 'gemini-2.5-flash')) ?: 'gemini-2.5-flash';
+        $geminiModel = trim((string) config('services.gemini.model', 'gemini-flash-lite-latest')) ?: 'gemini-flash-lite-latest';
         $geminiBaseUrl = rtrim((string) config('services.gemini.base_url', 'https://generativelanguage.googleapis.com/v1beta'), '/');
 
         $groqKey = trim((string) config('services.groq.key', ''));
-        $groqModel = trim((string) config('services.groq.vision_model', 'meta-llama/llama-4-scout-17b-16e-instruct'))
-            ?: 'meta-llama/llama-4-scout-17b-16e-instruct';
+        $groqModel = trim((string) config('services.groq.vision_model', 'qwen/qwen3.8-27b'))
+            ?: 'qwen/qwen3.8-27b';
         $groqBaseUrl = rtrim((string) config('services.groq.base_url', 'https://api.groq.com/openai/v1'), '/');
 
         if ($geminiKey === '' && $groqKey === '') {

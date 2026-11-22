@@ -42,7 +42,7 @@ Future<bool> showConfigureAiVisionKeysDialog(
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Text(
-                  'Prioritas otomatis: Gemini 2.5 Flash (Utama) → Groq Llama 4 Scout (Fallback jika limit/gagal) → OCR Offline. Key disimpan terenkripsi hanya di perangkat ini.',
+                  'Prioritas otomatis: Gemini Flash Lite (Utama) → Groq Qwen 3.8 Vision (Fallback jika limit/gagal) → OCR Offline. Key disimpan terenkripsi hanya di perangkat ini.',
                   style: textTheme.bodySmall,
                 ),
               ),

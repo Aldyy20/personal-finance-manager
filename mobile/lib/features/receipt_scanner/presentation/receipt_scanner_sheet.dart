@@ -1102,9 +1102,9 @@ class _ReceiptScannerContentState extends ConsumerState<ReceiptScannerContent> {
                       const SizedBox(height: 2),
                       Text(
                         _hasGeminiKey && _hasGroqKey
-                            ? 'Gemini 2.5 Flash utama • Groq Llama 4 fallback otomatis'
+                            ? 'Gemini Flash Lite utama • Groq Qwen 3.8 fallback otomatis'
                             : (_hasGeminiKey
-                                ? 'Gemini 2.5 Flash aktif (tambahkan Groq untuk fallback)'
+                                ? 'Gemini Flash Lite aktif (tambahkan Groq untuk fallback)'
                                 : (_hasGroqKey
                                     ? 'Groq Vision aktif (tambahkan Gemini sebagai utama)'
                                     : 'Atur API Key gratis Gemini & Groq atau pakai Server/OCR Offline')),

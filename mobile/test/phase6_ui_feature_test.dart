@@ -537,7 +537,7 @@ void main() {
 
       final geminiParsed = AiReceiptVisionService.parseAiJsonPayload(
         geminiRaw,
-        providerLabel: 'AI Gemini 2.5 Flash',
+        providerLabel: 'AI Gemini Flash Lite',
       );
       expect(geminiParsed, isNotNull);
       expect(geminiParsed!.merchantName, 'ALFAMART DIPONEGORO');
@@ -560,7 +560,7 @@ Hasil pembacaan nota:
 ```''';
       final groqParsed = AiReceiptVisionService.parseAiJsonPayload(
         groqRaw,
-        providerLabel: 'Groq Fallback • Llama 4 Scout',
+        providerLabel: 'Groq Fallback • Qwen 3.8 Vision',
         fallbackUsed: true,
       );
       expect(groqParsed, isNotNull);

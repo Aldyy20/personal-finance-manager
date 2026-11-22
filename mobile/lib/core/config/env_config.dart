@@ -12,9 +12,9 @@ class EnvConfig {
     this.receiveTimeout = const Duration(seconds: 30),
     this.maxReceiptSizeBytes = 5 * 1024 * 1024,
     this.geminiApiKey = '',
-    this.geminiModel = 'gemini-2.5-flash',
+    this.geminiModel = 'gemini-flash-lite-latest',
     this.groqApiKey = '',
-    this.groqVisionModel = 'meta-llama/llama-4-scout-17b-16e-instruct',
+    this.groqVisionModel = 'qwen/qwen3.8-27b',
   });
 
   final AppEnvironment environment;
@@ -33,12 +33,12 @@ class EnvConfig {
     const geminiApiKey = String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
     const geminiModel = String.fromEnvironment(
       'GEMINI_MODEL',
-      defaultValue: 'gemini-2.5-flash',
+      defaultValue: 'gemini-flash-lite-latest',
     );
     const groqApiKey = String.fromEnvironment('GROQ_API_KEY', defaultValue: '');
     const groqVisionModel = String.fromEnvironment(
       'GROQ_VISION_MODEL',
-      defaultValue: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      defaultValue: 'qwen/qwen3.8-27b',
     );
 
     final env = switch (rawEnv.toLowerCase()) {
@@ -59,11 +59,11 @@ class EnvConfig {
       environment: env,
       apiBaseUrl: customBaseUrl.isNotEmpty ? customBaseUrl : defaultBaseUrl,
       geminiApiKey: geminiApiKey,
-      geminiModel: geminiModel.isNotEmpty ? geminiModel : 'gemini-2.5-flash',
+      geminiModel: geminiModel.isNotEmpty ? geminiModel : 'gemini-flash-lite-latest',
       groqApiKey: groqApiKey,
       groqVisionModel: groqVisionModel.isNotEmpty
           ? groqVisionModel
-          : 'meta-llama/llama-4-scout-17b-16e-instruct',
+          : 'qwen/qwen3.8-27b',
     );
   }
 }

@@ -27,7 +27,7 @@ class AiReceiptScanTest extends TestCase
     {
         config([
             'services.gemini.key' => 'test-gemini-key',
-            'services.gemini.model' => 'gemini-2.5-flash',
+            'services.gemini.model' => 'gemini-flash-lite-latest',
             'services.groq.key' => 'test-groq-key',
         ]);
 
@@ -77,9 +77,9 @@ class AiReceiptScanTest extends TestCase
     {
         config([
             'services.gemini.key' => 'test-gemini-key',
-            'services.gemini.model' => 'gemini-2.5-flash',
+            'services.gemini.model' => 'gemini-flash-lite-latest',
             'services.groq.key' => 'test-groq-key',
-            'services.groq.vision_model' => 'meta-llama/llama-4-scout-17b-16e-instruct',
+            'services.groq.vision_model' => 'qwen/qwen3.8-27b',
         ]);
 
         Http::fake([

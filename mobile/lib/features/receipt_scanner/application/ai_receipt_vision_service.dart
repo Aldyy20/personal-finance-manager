@@ -117,7 +117,7 @@ class AiReceiptVisionService {
         );
         final parsed = parseAiJsonPayload(
           rawPayload,
-          providerLabel: 'AI Gemini 2.5 Flash',
+          providerLabel: 'AI Gemini Flash Lite',
           fallbackUsed: false,
         );
         if (parsed != null) {
@@ -146,8 +146,8 @@ class AiReceiptVisionService {
         final parsed = parseAiJsonPayload(
           rawPayload,
           providerLabel: geminiAttempted
-              ? 'Groq Fallback • Llama 4 Scout'
-              : 'AI Groq • Llama 4 Scout',
+              ? 'Groq Fallback • Qwen 3.8 Vision'
+              : 'AI Groq • Qwen 3.8 Vision',
           fallbackUsed: geminiAttempted,
         );
         if (parsed != null) {
